@@ -1,5 +1,8 @@
 # LEGO Streamlit Dashboard
 
+อัปเดตการตรวจข้อมูลต้นฉบับและ baseline ซื้อครั้งแรก:
+[บันทึก audit 16 กันยายน 2026](docs/PERSISTED_LEDGER_AUDIT_20260916.md)
+
 แดชบอร์ดแบบ read-only สำหรับอ่าน committed rows จาก Firebase Realtime Database
 และหน้าเรียนรู้ Rebalancing 101 ที่จำลอง DNA gate ได้โดยไม่ต้องเชื่อม Firebase
 
