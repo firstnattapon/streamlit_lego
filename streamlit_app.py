@@ -11,6 +11,7 @@ deploy บน streamlit.app: ใส่ service account JSON + DB URL ใน st.s
 """
 from __future__ import annotations
 
+import importlib
 import json
 
 import firebase_admin
@@ -19,8 +20,16 @@ import streamlit as st
 from firebase_admin import credentials, db
 
 from dna_engine import DNAError
+import lego_dash_core as _lego_dash_core
+
+# Streamlit reruns the entry script in a long-lived process. During a hot deploy,
+# sys.modules can still hold the previous lego_dash_core while this file is newer.
+# Reload once when the new semantics bundle is missing, then import the public API.
+if not hasattr(_lego_dash_core, "FROZEN_TERMINAL_SEMANTICS"):
+    _lego_dash_core = importlib.reload(_lego_dash_core)
+
 from lego_dash_core import (DEFAULT_GATED_DNA, EXECUTION_CONFIRMED_SEMANTICS,
-                            FROZEN_TERMINAL_SEMANTICS,
+                            EXECUTION_TERMINAL_FROZEN_V2,
                             MAX_REBALANCING_STEPS, MONEY_COLS,
                             build_gate_actions, count_ledger_corrections,
                             default_chain_index, filter_audit_rows,
@@ -30,6 +39,11 @@ from lego_dash_core import (DEFAULT_GATED_DNA, EXECUTION_CONFIRMED_SEMANTICS,
                             rebalancing_cashflow_from_prices,
                             recompute_gated_ledger, rows_to_df,
                             simulate_rebalancing_prices)
+
+FROZEN_TERMINAL_SEMANTICS = getattr(
+    _lego_dash_core, "FROZEN_TERMINAL_SEMANTICS",
+    (EXECUTION_TERMINAL_FROZEN_V2,),
+)
 
 ROWS_PATH = "webull_lego_rows"
 STATE_PATH = "webull_lego_state"
@@ -302,4 +316,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
