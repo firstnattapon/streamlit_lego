@@ -60,9 +60,11 @@ LEGACY_REALIZED_SEMANTICS = "cycle_realized_v1"
 # semantics ปัจจุบันของ lego-firebase: decision เป็นเพียง intent; broker fill เท่านั้นที่ act
 EXECUTION_CONFIRMED_SEMANTICS = "execution_confirmed_v1"
 EXECUTION_TERMINAL_FROZEN_V2 = "execution_terminal_frozen_v2"
+EXECUTION_TERMINAL_FUNDING_V3 = "execution_terminal_funding_v3"
+FROZEN_TERMINAL_SEMANTICS = (EXECUTION_TERMINAL_FROZEN_V2, EXECUTION_TERMINAL_FUNDING_V3)
 CASHFLOW_SEMANTICS_HISTORY = (
     LEGACY_REALIZED_SEMANTICS, GATED_SEMANTICS, EXECUTION_CONFIRMED_SEMANTICS,
-    EXECUTION_TERMINAL_FROZEN_V2,
+    *FROZEN_TERMINAL_SEMANTICS,
 )
 CASHFLOW_SEMANTICS_RANK = {
     name: rank for rank, name in enumerate(CASHFLOW_SEMANTICS_HISTORY)
@@ -70,6 +72,7 @@ CASHFLOW_SEMANTICS_RANK = {
 CASHFLOW_NO_ACTION = "NO_ACTION"
 CASHFLOW_PENDING_EXECUTION = "PENDING_EXECUTION"
 CASHFLOW_FINALIZED = "FINALIZED"
+FUNDING_BASELINE_POLICY = "initial_funding_zero_v1"
 CASHFLOW_STATUSES = frozenset({
     CASHFLOW_NO_ACTION, CASHFLOW_PENDING_EXECUTION, CASHFLOW_FINALIZED,
 })
@@ -185,7 +188,7 @@ def _semantics(df: pd.DataFrame) -> pd.Series:
 
 def _execution_flags(df: pd.DataFrame) -> list[bool]:
     return _semantics(df).isin([
-        EXECUTION_CONFIRMED_SEMANTICS, EXECUTION_TERMINAL_FROZEN_V2]).tolist()
+        EXECUTION_CONFIRMED_SEMANTICS, *FROZEN_TERMINAL_SEMANTICS]).tolist()
 
 
 def _positive_numeric(df: pd.DataFrame, column: str) -> pd.Series:
@@ -224,7 +227,7 @@ def _known_cashflow_flags(df: pd.DataFrame) -> list[bool]:
     semantics = _semantics(df)
     return semantics.isin([
         GATED_SEMANTICS, EXECUTION_CONFIRMED_SEMANTICS,
-        EXECUTION_TERMINAL_FROZEN_V2]).tolist()
+        *FROZEN_TERMINAL_SEMANTICS]).tolist()
 
 
 def _reference_context(df: pd.DataFrame, p0: float | None) -> tuple[float, float] | None:
@@ -273,6 +276,111 @@ def _apply_reference_column(out: pd.DataFrame, source: pd.DataFrame,
     return out
 
 
+def _frozen_v2_errors(df: pd.DataFrame, fix_c: float, p0: float | None,
+                      scale: float) -> list[str]:
+    """Validate persisted v2 arithmetic independently; never compare a copy to itself.
+
+    A clipped window without enough basis evidence is incomplete, not green.
+    New backend rows carry the previous execution basis; old complete chains
+    can reconstruct it from confirmed fills. Funding drift remains visible.
+    """
+    errors = []
+    previous_price = p0 if df.iloc[0].get("version") == 1 else None
+    previous_A = 0.0 if df.iloc[0].get("version") == 1 else None
+    previous_E = 0.0 if df.iloc[0].get("version") == 1 else None
+    complete_origin = df.iloc[0].get("version") == 1
+    confirmed_history = []
+    for _, row in df.iterrows():
+        if row.get("semantics") not in FROZEN_TERMINAL_SEMANTICS:
+            previous_price = previous_A = previous_E = None
+            continue
+        def number(key, default=None):
+            value = row.get(key, default)
+            if pd.isna(value):
+                value = default
+            if value is None:
+                raise ValueError(f"missing {key}")
+            value = float(value)
+            if not math.isfinite(value):
+                raise ValueError(f"nonfinite {key}")
+            return value
+        try:
+            delta, actual, excess = (number(c) for c in COLUMN_ORDER[14:17])
+            policy = row.get("model_baseline_policy")
+            if pd.isna(policy):
+                policy = None
+            if policy not in (None, FUNDING_BASELINE_POLICY):
+                raise ValueError("unknown model baseline policy")
+            finalized = row.get("cashflow_status") == CASHFLOW_FINALIZED
+            if finalized:
+                price = number("execution_price")
+                if price <= 0 or number("execution_quantity") <= 0:
+                    raise ValueError("invalid execution facts")
+                prior_price = number("previous_action_price", previous_price)
+                prior_A = number("previous_actual_cumulative", previous_A)
+                if prior_price <= 0:
+                    raise ValueError("invalid previous action price")
+                funding = row.get("initial_funding") is True
+                # Historical v2 initialized from a quote, booking slippage as
+                # a return on the first flat BUY. Flag it; do not hide/rewrite it.
+                flat_first_buy = (row.get("version") == 1
+                                  and row.get("ฝั่ง") == "BUY"
+                                  and number("จำนวนถือครอง (หุ้น)") == 0)
+                if funding:
+                    if (policy != FUNDING_BASELINE_POLICY
+                            or number("finalized_seq") != 1
+                            or row.get("ฝั่ง") != "BUY"
+                            or number("จำนวนถือครอง (หุ้น)") != 0 or prior_A != 0):
+                        raise ValueError("invalid initial funding provenance")
+                    expected_delta = 0.0
+                else:
+                    expected_delta = fix_c * (price / prior_price - 1)
+                basis = number("R_basis")
+                offset = number("funding_reference_offset", 0)
+                reference = number(COLUMN_ORDER[13])
+                expected_basis = reference - offset
+                if funding:
+                    expected_basis = 0.0
+                    if abs(reference - offset) > scale:
+                        raise ValueError("funding reference offset mismatch")
+                residuals = [delta - expected_delta, actual - (prior_A + delta),
+                             excess - (actual - basis), basis - expected_basis]
+                if flat_first_buy:
+                    residuals.extend([delta, actual, excess])
+                if max(abs(x) for x in residuals) > scale:
+                    raise ValueError("funding/terminal arithmetic mismatch")
+                previous_price, previous_A, previous_E = price, actual, excess
+                confirmed_history.append((row.get("cashflow_finalized_at"), actual, excess))
+            else:
+                if abs(delta) > scale:
+                    raise ValueError("unfilled row moved delta")
+                basis = number("R_basis", (previous_A - previous_E)
+                               if previous_A is not None and previous_E is not None else None)
+                if abs(excess - (actual - basis)) > scale:
+                    raise ValueError("frozen excess disagrees with persisted basis")
+                # Baseline for a leading frozen row of a truncated window can
+                # be carried, but cannot prove its own prior execution history.
+                if previous_A is None:
+                    raise ValueError("incomplete prior execution history")
+                observed_at = pd.to_datetime(row.get("เวลา (UTC)"), utc=True, errors="coerce")
+                visible = []
+                for finalized_at, final_A, final_E in confirmed_history:
+                    timestamp = pd.to_datetime(finalized_at, utc=True, errors="coerce")
+                    if pd.isna(timestamp) or pd.isna(observed_at) or timestamp <= observed_at:
+                        visible.append((final_A, final_E))
+                if visible:
+                    expected_A, expected_E = visible[-1]
+                elif complete_origin:
+                    expected_A = expected_E = 0.0
+                else:
+                    raise ValueError("incomplete observation baseline")
+                if max(abs(actual - expected_A), abs(excess - expected_E)) > scale:
+                    raise ValueError("unfilled row moved cumulative ledger")
+        except (ValueError, TypeError, OverflowError) as exc:
+            errors.append(f"v{row.get('version', '?')}: {exc}")
+    return errors
+
+
 def integrity_report(df: pd.DataFrame, p0_hint: float | None = None,
                      tol: float = 1e-6) -> tuple[pd.DataFrame, bool]:
     """ตรวจสมการ LEGO กับแถว committed ของ chain เดียว (เรียง version แล้ว)
@@ -308,7 +416,7 @@ def integrity_report(df: pd.DataFrame, p0_hint: float | None = None,
     fixc_series = v + gap
     fix_c = float(fixc_series.iloc[0])
     scale = tol * max(1.0, abs(fix_c))
-    genesis = bool(step.iloc[0] == 0)
+    genesis = bool(df.iloc[0].get("version") == 1 or step.iloc[0] == 0)
 
     p0 = p0_hint
     if p0 is None and genesis:
@@ -337,10 +445,13 @@ def integrity_report(df: pd.DataFrame, p0_hint: float | None = None,
     semantics = _semantics(df)
     known = semantics.isin([
         GATED_SEMANTICS, EXECUTION_CONFIRMED_SEMANTICS,
-        EXECUTION_TERMINAL_FROZEN_V2])
+        *FROZEN_TERMINAL_SEMANTICS])
     legacy = semantics.eq(LEGACY_REALIZED_SEMANTICS)
     unknown = ~(known | legacy)
-    execution = semantics.eq(EXECUTION_CONFIRMED_SEMANTICS)
+    execution = semantics.isin([EXECUTION_CONFIRMED_SEMANTICS,
+                               *FROZEN_TERMINAL_SEMANTICS])
+    frozen_v2 = semantics.isin(FROZEN_TERMINAL_SEMANTICS)
+    v2_errors = _frozen_v2_errors(df, fix_c, p0, scale) if frozen_v2.any() else []
     semantic_ranks = semantics.map(CASHFLOW_SEMANTICS_RANK)
     semantics_downgrade = semantic_ranks.diff().lt(0)
     semantics_downgrade_count = int(semantics_downgrade.fillna(False).sum())
@@ -385,13 +496,15 @@ def integrity_report(df: pd.DataFrame, p0_hint: float | None = None,
             f"cashflow semantics เดินถอยหลัง {semantics_downgrade_count} จุด — fail closed")
     if invalid_execution_count:
         notes4.append(f"execution provenance ผิด {invalid_execution_count} แถว")
+    if v2_errors:
+        notes4.append("; ".join(v2_errors[:5]))
     note4 = " · ".join(notes4)
     equation4 = ("v2 decision-price / v3 FINALIZED execution-price; frozen ΔAₙ = 0"
                  if bool(execution.any()) else
                  "gated: act ΔAₙ = FIX_C × (Pₙ/P_acted − 1) ; pass ΔAₙ = 0")
     ok4 = (((r4 is None) or r4 <= scale)
            and invalid_execution_count == 0 and unknown_count == 0
-           and semantics_downgrade_count == 0)
+           and semantics_downgrade_count == 0 and not v2_errors)
     add("E4", equation4, r4, ok4,
         note4 or ("ไม่มีแถวตรวจได้" if r4 is None else ""))
 
@@ -400,7 +513,9 @@ def integrity_report(df: pd.DataFrame, p0_hint: float | None = None,
         boundary = semantics.ne(semantics.shift(1))       # exact semantics boundary
         boundary.iloc[0] = False
         resid5 = A - (A.shift(1) + dA)
-        r5 = _max_abs(resid5[~boundary])
+        # v2 finalization can occur after later observation rows were committed.
+        # Its per-fill previous_actual_cumulative is checked independently above.
+        r5 = _max_abs(resid5[~boundary & ~frozen_v2 & ~frozen_v2.shift(1, fill_value=False)])
         note5 = ("" if int(boundary.sum()) == 0 else
                  "ข้ามรอยต่อเปลี่ยน semantics (baseline Aₙ รีเซ็ตเป็น 0)")
         add("E5", "Aₙ = Aₙ₋₁ + ΔAₙ", r5, r5 <= scale, note5)
@@ -416,7 +531,7 @@ def integrity_report(df: pd.DataFrame, p0_hint: float | None = None,
         notes6.append(f"semantics ว่าง/ไม่รู้จัก {unknown_count} แถว — fail closed")
     note6 = " · ".join(notes6)
     add("E6", "act Eₙ = Aₙ − Rₙ(row quote); frozen Eₙ = Aₙ − FIX_C × ln(P_acted/P₀)",
-        r6, r6 <= scale and unknown_count == 0, note6)
+        r6, r6 <= scale and unknown_count == 0 and not v2_errors, note6)
 
     # DNA เดินตาม market slot: ปกติ scheduler ไม่พลาด -> step +1 เหมือนเดิมทุกประการ
     # แต่ถ้าพลาด slot step ต้องกระโดดเท่ากับ market_ordinal ที่ข้ามไป (ห้ามย้อน/ซ้ำ)
@@ -475,7 +590,7 @@ def recompute_gated_ledger(df: pd.DataFrame, p0: float | None = None) -> pd.Data
 
     source = df.reset_index(drop=True)
     out = source.copy()
-    frozen_v2 = _semantics(source).eq(EXECUTION_TERMINAL_FROZEN_V2)
+    frozen_v2 = _semantics(source).isin(FROZEN_TERMINAL_SEMANTICS)
     p = out["ราคา Pₙ (USD)"].astype(float)
     fix_c = float((out["มูลค่าพอร์ต (USD)"].astype(float)
                    + out["ส่วนต่างเป้าหมาย (USD)"].astype(float)).iloc[0])

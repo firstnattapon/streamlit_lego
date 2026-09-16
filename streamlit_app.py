@@ -20,7 +20,7 @@ from firebase_admin import credentials, db
 
 from dna_engine import DNAError
 from lego_dash_core import (DEFAULT_GATED_DNA, EXECUTION_CONFIRMED_SEMANTICS,
-                            EXECUTION_TERMINAL_FROZEN_V2,
+                            FROZEN_TERMINAL_SEMANTICS,
                             MAX_REBALANCING_STEPS, MONEY_COLS,
                             build_gate_actions, count_ledger_corrections,
                             default_chain_index, filter_audit_rows,
@@ -93,10 +93,10 @@ def render_live_dashboard() -> None:
     execution_mode = ("semantics" in df.columns
                       and df["semantics"].astype(str).isin([
                           EXECUTION_CONFIRMED_SEMANTICS,
-                          EXECUTION_TERMINAL_FROZEN_V2]).any())
+                          *FROZEN_TERMINAL_SEMANTICS]).any())
     frozen_v2_mode = ("semantics" in df.columns
                       and df["semantics"].astype(str)
-                      .eq(EXECUTION_TERMINAL_FROZEN_V2).any())
+                      .isin(FROZEN_TERMINAL_SEMANTICS).any())
 
     # P₀ จาก state pointer (chain ตัดหน้า) — genesis จะ fallback = ราคาแถวแรกใน recompute
     p0_hint = None
@@ -106,6 +106,7 @@ def render_live_dashboard() -> None:
 
     # dashboard เป็น read-only: derive recurrence ใหม่ตาม semantics ก่อนแสดงเสมอ;
     # v2 ใช้ decision ส่วน v3 ใช้เฉพาะหลักฐาน broker fill ที่ FINALIZED.
+    persisted_df = df.copy(deep=True)
     df_fixed = recompute_gated_ledger(df, p0=p0_hint)
     n_corr = count_ledger_corrections(df, df_fixed)
     if n_corr:
@@ -164,13 +165,12 @@ def render_live_dashboard() -> None:
             show[col] = show[col].astype(float).round(2)
     st.dataframe(show, width="stretch")
 
-    # integrity: ตรวจจากค่า full precision ที่ "แสดงจริง" (recomputed) — ต้องผ่านเสมอ
+    # Audit the persisted evidence, before any display-only recomputation.
     with st.expander("🔎 Integrity check — สมการ LEGO (E1–E8)", expanded=False):
-        report, ok = integrity_report(df, p0_hint=p0_hint)
+        report, ok = integrity_report(persisted_df, p0_hint=p0_hint)
         st.dataframe(report, width="stretch")
         if ok:
-            st.success("ทุกสมการผ่าน — ค่าที่แสดง (คำนวณใหม่) สอดคล้อง LEGO invariant"
-                       + (f" · แก้จาก engine {n_corr} แถว" if n_corr else ""))
+            st.success("ข้อมูลที่บันทึกผ่านการตรวจสมการในช่วงที่โหลด — ไม่ใช่การรับรองความพร้อมเทรดเงินจริง")
         else:
             st.error("พบแถวที่ไม่สอดคล้องสมการ — ตรวจ chain/engine ก่อนเชื่อกราฟ")
 
