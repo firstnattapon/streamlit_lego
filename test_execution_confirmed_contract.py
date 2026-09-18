@@ -27,12 +27,12 @@ DNA_CONTRACT = "26021034252903219354832053493"
 
 def _decision(price: float, holdings: float, signal: int):
     value = holdings * price
-    gap = FIX_C - value
+    gap = value - FIX_C
     if signal == 0:
         return "PASS_DNA_ZERO", "PASS", "", 0.0, value, gap
     if abs(gap) <= 0.0:
         return "PASS_THRESHOLD", "PASS", "", 0.0, value, gap
-    side = "BUY" if gap > 0 else "SELL"
+    side = "SELL" if gap > 0 else "BUY"
     return (f"READY_{side}", "TRIGGER_ACTION", side,
             round(abs(gap) / price, 5), value, gap)
 
@@ -59,6 +59,7 @@ def _row(step: int, price: float, holdings: float, signal: int, *,
         "ส่วนต่างเป้าหมาย (USD)": gap,
         "Rₙ อ้างอิง (USD)": R,
         "ΔAₙ ต่อสเต็ป (USD)": dA,
+        "ΔAₙ เงินจริง (USD)": dA,
         "Aₙ สะสม (USD)": A,
         "Eₙ ส่วนเกินสะสม (USD)": E,
         "run_id": f"exec{step:028d}",
@@ -144,7 +145,7 @@ def test_execution_fixture_recomputes_without_changing_17_column_contract():
     for col in ("Rₙ อ้างอิง (USD)", "ΔAₙ ต่อสเต็ป (USD)",
                 "Aₙ สะสม (USD)", "Eₙ ส่วนเกินสะสม (USD)"):
         assert np.allclose(fixed[col].astype(float), source[col].astype(float), atol=1e-9)
-    assert list(order_columns(fixed).columns)[:17] == COLUMN_ORDER
+    assert list(order_columns(fixed).columns)[:len(COLUMN_ORDER)] == COLUMN_ORDER
     for col in ("สถานะ", "DNA signal", "จำนวนสั่ง (หุ้น)"):
         assert list(fixed[col]) == list(source[col])
 

@@ -20,7 +20,7 @@ def _rows(cases: list[tuple[int, str, float]]) -> pd.DataFrame:
     prices = [P0 + i * 2.0 for i in range(len(cases))]
 
     for i, ((signal, status, qty), price) in enumerate(zip(cases, prices)):
-        gap = FIX_C - 9.3 * price
+        gap = 9.3 * price - FIX_C
         reference = 0.0 if i == 0 else FIX_C * math.log(price / P0)
         executed = signal == 1 and status in {"READY_BUY", "READY_SELL"} and qty > 0
         if i == 0:
@@ -52,6 +52,7 @@ def _rows(cases: list[tuple[int, str, float]]) -> pd.DataFrame:
             "ส่วนต่างเป้าหมาย (USD)": gap,
             "Rₙ อ้างอิง (USD)": reference,
             "ΔAₙ ต่อสเต็ป (USD)": delta,
+            "ΔAₙ เงินจริง (USD)": delta if executed else 0.0,
             "Aₙ สะสม (USD)": accumulated + (delta if not executed and i > 0 else 0.0),
             "Eₙ ส่วนเกินสะสม (USD)": excess,
             "run_id": f"r{i}",
@@ -108,7 +109,7 @@ def test_reference_rn_recomputed_on_non_genesis_first_row_when_p0_known():
     df["version"] = [13, 14]
     df["ราคา Pₙ (USD)"] = [330.0, 332.0]
     df["มูลค่าพอร์ต (USD)"] = 9.3 * df["ราคา Pₙ (USD)"]
-    df["ส่วนต่างเป้าหมาย (USD)"] = FIX_C - df["มูลค่าพอร์ต (USD)"]
+    df["ส่วนต่างเป้าหมาย (USD)"] = df["มูลค่าพอร์ต (USD)"] - FIX_C
     df["Rₙ อ้างอิง (USD)"] = 0.0
 
     fixed = recompute_gated_ledger(df, p0=P0)

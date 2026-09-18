@@ -33,7 +33,7 @@ def _mk_chain(prices: list[float], holdings: list[float], signals: list[int]) ->
     acted = p0
     for n, (p, h, sig) in enumerate(zip(prices, holdings, signals)):
         v = h * p
-        gap = FIX_C - v
+        gap = v - FIX_C
 
         # ตัดสินใจก่อน แล้วค่อย gate ledger ที่ "เทรดจริงไหม" (ไม่ใช่ DNA signal)
         if sig == 0:
@@ -41,23 +41,25 @@ def _mk_chain(prices: list[float], holdings: list[float], signals: list[int]) ->
         elif abs(gap) <= DIFF:
             status, action, side, qty = "PASS_THRESHOLD", "PASS", "", 0.0
         elif gap > DIFF:
-            status, action, side, qty = "READY_BUY", "TRIGGER_ACTION", "BUY", round(gap / p, 5)
+            status, action, side, qty = "READY_SELL", "TRIGGER_ACTION", "SELL", round(gap / p, 5)
         else:
-            status, action, side, qty = "READY_SELL", "TRIGGER_ACTION", "SELL", round(-gap / p, 5)
+            status, action, side, qty = "READY_BUY", "TRIGGER_ACTION", "BUY", round(-gap / p, 5)
         traded = status in ("READY_BUY", "READY_SELL")
 
         if n == 0:
-            R = dA = A = E = 0.0
+            R = dA = dA_act = A = E = 0.0
             acted = p
         elif traded:
             R = FIX_C * math.log(p / p0)
             dA = FIX_C * (p / acted - 1.0)
-            A = A_prev + dA
+            dA_act = dA
+            A = A_prev + dA_act
             E = A - R
             acted = p
         else:                                     # pass (รวม PASS_THRESHOLD) -> แช่แข็ง
             R = FIX_C * math.log(p / p0)
             dA = 0.0
+            dA_act = 0.0
             A = A_prev
             E = A - FIX_C * math.log(acted / p0)
         A_prev = A
@@ -78,6 +80,7 @@ def _mk_chain(prices: list[float], holdings: list[float], signals: list[int]) ->
             "ส่วนต่างเป้าหมาย (USD)": gap,
             "Rₙ อ้างอิง (USD)": R,
             "ΔAₙ ต่อสเต็ป (USD)": dA,
+            "ΔAₙ เงินจริง (USD)": dA_act,
             "Aₙ สะสม (USD)": A,
             "Eₙ ส่วนเกินสะสม (USD)": E,
             "run_id": "rid" + f"{n:029d}",
@@ -113,8 +116,8 @@ def test_order_columns_contract():
     # จำลอง RTDB คืน key สลับ (เรียงตามอักษร)
     scrambled = {k: dict(sorted(v.items())) for k, v in data.items()}
     df = order_columns(rows_to_df(scrambled))
-    assert list(df.columns)[:17] == COLUMN_ORDER
-    assert list(df.columns)[17:21] == ["run_id", "chain_key", "version", "committed"]
+    assert list(df.columns)[:len(COLUMN_ORDER)] == COLUMN_ORDER
+    assert list(df.columns)[len(COLUMN_ORDER):len(COLUMN_ORDER)+4] == ["run_id", "chain_key", "version", "committed"]
 
 
 def test_integrity_all_pass():
@@ -224,7 +227,7 @@ def test_recompute_all_pass_signal1_stays_frozen_at_anchor():
             "DNA step": n, "DNA signal": 1, "ราคา Pₙ (USD)": p,
             "จำนวนถือครอง (หุ้น)": h, "คำสั่ง": "PASS", "ฝั่ง": "",
             "เหตุผล": "PASS_THRESHOLD", "จำนวนสั่ง (หุ้น)": 0.0,
-            "มูลค่าพอร์ต (USD)": h * p, "ส่วนต่างเป้าหมาย (USD)": 3000.0 - h * p,
+            "มูลค่าพอร์ต (USD)": h * p, "ส่วนต่างเป้าหมาย (USD)": h * p - 3000.0,
             "Rₙ อ้างอิง (USD)": 0.0 if n == 0 else 3000.0 * _m.log(p / prices[0]),
             # engine เขียนผิด: act บนแถว 1
             "ΔAₙ ต่อสเต็ป (USD)": 0.0 if n == 0 else 3000.0 * (p / prices[0] - 1.0),
@@ -297,8 +300,8 @@ def _mk_realized_chain(prices: list[float], realized_deltas: list[float],
             "ราคา Pₙ (USD)": p, "จำนวนถือครอง (หุ้น)": 150.0,
             "คำสั่ง": "PASS", "ฝั่ง": "", "เหตุผล": "PASS_THRESHOLD",
             "จำนวนสั่ง (หุ้น)": 0.0,
-            "มูลค่าพอร์ต (USD)": v, "ส่วนต่างเป้าหมาย (USD)": FIX_C - v,
-            "Rₙ อ้างอิง (USD)": R, "ΔAₙ ต่อสเต็ป (USD)": dA,
+            "มูลค่าพอร์ต (USD)": v, "ส่วนต่างเป้าหมาย (USD)": v - FIX_C,
+            "Rₙ อ้างอิง (USD)": R, "ΔAₙ ต่อสเต็ป (USD)": dA, "ΔAₙ เงินจริง (USD)": dA,
             "Aₙ สะสม (USD)": A, "Eₙ ส่วนเกินสะสม (USD)": A - R if not genesis else 0.0,
             "run_id": "rlz" + f"{start_version + n:029d}",
             "chain_key": "APLS_abc123def456",
@@ -350,8 +353,8 @@ def _mk_gated_cont(prices, signals, start_version, start_step,
             "คำสั่ง": "PASS", "ฝั่ง": "",
             "เหตุผล": "PASS_DNA_ZERO" if sig == 0 else "PASS_THRESHOLD",
             "จำนวนสั่ง (หุ้น)": 0.0,
-            "มูลค่าพอร์ต (USD)": v, "ส่วนต่างเป้าหมาย (USD)": FIX_C - v,
-            "Rₙ อ้างอิง (USD)": R, "ΔAₙ ต่อสเต็ป (USD)": dA,
+            "มูลค่าพอร์ต (USD)": v, "ส่วนต่างเป้าหมาย (USD)": v - FIX_C,
+            "Rₙ อ้างอิง (USD)": R, "ΔAₙ ต่อสเต็ป (USD)": dA, "ΔAₙ เงินจริง (USD)": dA,
             "Aₙ สะสม (USD)": A, "Eₙ ส่วนเกินสะสม (USD)": E,
             "run_id": "gat" + f"{start_version + n:029d}",
             "chain_key": "APLS_abc123def456",
@@ -385,8 +388,8 @@ def test_integrity_still_catches_broken_A_chain_in_realized_rows():
 def test_order_columns_groups_semantics_with_meta():
     data = _mk_realized_chain([10.0, 11.0], [0.0, 0.0])
     df = order_columns(rows_to_df(data))
-    assert list(df.columns)[:17] == COLUMN_ORDER
-    assert list(df.columns)[17:22] == ["run_id", "chain_key", "version",
+    assert list(df.columns)[:len(COLUMN_ORDER)] == COLUMN_ORDER
+    assert list(df.columns)[len(COLUMN_ORDER):len(COLUMN_ORDER)+5] == ["run_id", "chain_key", "version",
                                        "committed", "semantics"]
 
 
@@ -534,8 +537,8 @@ def test_e7_keeps_plus_one_rule_for_rows_without_slot_provenance():
 
 def test_order_columns_keeps_slot_provenance_after_the_17():
     df = order_columns(rows_to_df(_with_slots([0, 1, 3, 4, 5], [0, 1, 3, 4, 5])))
-    assert list(df.columns)[:17] == COLUMN_ORDER
-    assert "market_ordinal" in list(df.columns)[17:]
+    assert list(df.columns)[:len(COLUMN_ORDER)] == COLUMN_ORDER
+    assert "market_ordinal" in list(df.columns)[len(COLUMN_ORDER):]
 
 
 if __name__ == "__main__":
