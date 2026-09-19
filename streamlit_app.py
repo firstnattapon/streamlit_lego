@@ -24,8 +24,14 @@ import lego_dash_core as _lego_dash_core
 
 # Streamlit reruns the entry script in a long-lived process. During a hot deploy,
 # sys.modules can still hold the previous lego_dash_core while this file is newer.
-# Reload once when the new semantics bundle is missing, then import the public API.
-if not hasattr(_lego_dash_core, "FROZEN_TERMINAL_SEMANTICS"):
+# Reload once when any public API used by this entry point is missing, then import
+# the public API. This prevents a mixed-version process (new streamlit_app.py +
+# stale lego_dash_core.py) from crashing with AttributeError after deployment.
+_REQUIRED_DASH_CORE_API = (
+    "FROZEN_TERMINAL_SEMANTICS",
+    "system_health_rows",
+)
+if any(not hasattr(_lego_dash_core, name) for name in _REQUIRED_DASH_CORE_API):
     _lego_dash_core = importlib.reload(_lego_dash_core)
 
 from lego_dash_core import (DEFAULT_GATED_DNA, EXECUTION_CONFIRMED_SEMANTICS,
