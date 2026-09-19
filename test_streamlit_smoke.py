@@ -62,3 +62,22 @@ def test_live_execution_dashboard_renders_with_mocked_read_only_firebase(
     # State pointer, 17-column table, and integrity report all rendered.
     assert len(app.dataframe) >= 3
 
+
+
+def test_auth_pause_visible_before_first_row_and_resolved_is_history(monkeypatch):
+    warnings = {"auth_failure_example": {"kind": "AUTH_BACKOFF", "active": True,
+                                           "count": 3, "retry_after": 9999999999}}
+    class Reference:
+        def __init__(self, path): self.path = path
+        def get(self): return warnings if self.path == "webull_lego_warnings" else {}
+    monkeypatch.setattr(firebase_admin, "_apps", {"test": object()})
+    monkeypatch.setattr(firebase_admin.db, "reference", Reference)
+    app = AppTest.from_file(str(Path(__file__).with_name("streamlit_app.py")))
+    app.secrets.update({"FIREBASE_SA_JSON": "{}", "FIREBASE_DB_URL": "https://mock.firebaseio.test"})
+    app.run(timeout=20)
+    assert not app.exception
+    assert any("Authentication" in item.value for item in app.error)
+    warnings["auth_failure_example"]["active"] = False
+    app.run(timeout=20)
+    assert not app.exception
+    assert not any("Authentication" in item.value for item in app.error)

@@ -900,3 +900,22 @@ def build_gate_actions(dna_code: str, n_rounds: int) -> list[int]:
         gate = gate * reps
     return gate[:n_rounds]
 
+
+
+def system_health_rows(warnings) -> pd.DataFrame:
+    """Bounded operator view; resolved incidents remain history, not live alarms."""
+    if not isinstance(warnings, dict):
+        return pd.DataFrame()
+    records = []
+    for key, value in warnings.items():
+        if not isinstance(value, dict):
+            continue
+        active = value.get("active")
+        records.append({"kind": value.get("kind", str(key)),
+                        "state": "ACTIVE" if active is True else (
+                            "RESOLVED" if active is False else "HISTORY"),
+                        "count": value.get("count"),
+                        "last_at": value.get("last_at") or value.get("at"),
+                        "retry_after": value.get("retry_after"),
+                        "resolved_at": value.get("resolved_at")})
+    return pd.DataFrame(records)
