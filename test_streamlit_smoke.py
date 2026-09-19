@@ -2,6 +2,7 @@
 from pathlib import Path
 
 import firebase_admin
+import lego_dash_core
 from streamlit.testing.v1 import AppTest
 
 from test_execution_confirmed_contract import _execution_fixture
@@ -81,3 +82,19 @@ def test_auth_pause_visible_before_first_row_and_resolved_is_history(monkeypatch
     app.run(timeout=20)
     assert not app.exception
     assert not any("Authentication" in item.value for item in app.error)
+
+
+def test_hot_deploy_reloads_core_when_system_health_api_is_missing(monkeypatch):
+    """A stale sys.modules core must not crash a newer Streamlit entry point."""
+    assert hasattr(lego_dash_core, "FROZEN_TERMINAL_SEMANTICS")
+    assert hasattr(lego_dash_core, "system_health_rows")
+
+    # Reproduce the mixed-version state seen on Streamlit Cloud: the process has
+    # an older core shape cached even though streamlit_app.py is already newer.
+    monkeypatch.delattr(lego_dash_core, "system_health_rows")
+
+    app = AppTest.from_file(str(Path(__file__).with_name("streamlit_app.py")))
+    app.run(timeout=20)
+
+    assert not app.exception
+    assert callable(getattr(lego_dash_core, "system_health_rows", None))
