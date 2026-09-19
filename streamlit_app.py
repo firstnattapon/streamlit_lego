@@ -81,6 +81,15 @@ def render_live_dashboard() -> None:
         return
     _init()
 
+    health = _lego_dash_core.system_health_rows(
+        db.reference("webull_lego_warnings").get())
+    if not health.empty:
+        if health["state"].eq("ACTIVE").any():
+            st.error("ระบบพักการทำงานจากปัญหา Authentication — ตรวจ credentials/token และเวลาลองใหม่")
+        with st.expander("System health — สถานะปัจจุบันและประวัติ", expanded=True):
+            st.dataframe(health, width="stretch")
+            st.caption("RESOLVED/HISTORY เป็นประวัติ ไม่ใช่หลักฐานว่าบัญชีพร้อมเทรดเงินจริง")
+
     state = db.reference(STATE_PATH).get() or {}
     if state:
         st.subheader("State pointer (anchor ปัจจุบัน)")
@@ -200,7 +209,10 @@ def render_live_dashboard() -> None:
                 st.warning(
                     f"มี {pending_fees} fill ที่ broker fee ยังเป็น PENDING — "
                     "ระบบไม่ถือเป็นศูนย์และยังไม่ปลด money fence จนกว่าจะกระทบยอด")
-            st.dataframe(adf, width="stretch")
+            diagnostic_columns = [name for name in ("run_id", "status", "reject_reason",
+                                  "terminal_reason", "filled_quantity", "broker_fee_status") if name in adf]
+            st.dataframe(adf[diagnostic_columns + [name for name in adf if name not in diagnostic_columns]],
+                         width="stretch")
 
 
 def render_rebalancing_101() -> None:
