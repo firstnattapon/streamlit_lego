@@ -60,7 +60,9 @@ def test_live_execution_dashboard_renders_with_mocked_read_only_firebase(
             "Eₙ สะสม (USD)"}.issubset(metric_labels)
     assert any("Execution cashflow ล่าสุด" in item.value for item in app.caption)
     assert any("execution_confirmed_v1" in item.value for item in app.caption)
-    # State pointer, 17-column table, and integrity report all rendered.
+    # State pointer and integrity report render as dataframes (plus the 101 tab's
+    # ledger). The 17-column table is the hover iframe by default; its tooltips and
+    # the dataframe fallback are covered in test_ledger_hover.py.
     assert len(app.dataframe) >= 3
 
 

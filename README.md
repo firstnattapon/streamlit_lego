@@ -13,6 +13,7 @@
 
 - `streamlit_app.py` — หน้า Live Dashboard และ Rebalancing 101
 - `lego_dash_core.py` — การจัดตาราง ตรวจ integrity และคำนวณ ledger สำหรับการแสดงผล
+- `lego_hover_table.py` — ตาราง HTML ที่ชี้เมาส์ดูที่มาของตัวเลขได้ (ฝังด้วย `components.html`)
 - `dna_engine.py` — ตัวถอด DNA แบบเดียวกับ backend
 - `requirements.txt` — dependency ที่ pin แล้ว
 - `docs/` — คู่มือและแผนการเรียนรู้เพิ่มเติม
@@ -27,6 +28,10 @@ streamlit run streamlit_app.py
 ```
 
 แท็บ Rebalancing 101 ใช้งานได้ทันทีโดยไม่ต้องมี credential
+
+## ดูที่มาของตัวเลขในตาราง 17 คอลัมน์
+
+ในแท็บ Live Dashboard ชี้เมาส์ (หรือกด Tab) ที่ตัวเลขคอลัมน์ Rₙ, ΔAₙ, Aₙ, Eₙ เพื่อดูสูตรพร้อมแทนค่าจริงของแถวนั้น เช่น P_acted มาจากแถว act ไหน และเหตุผลที่แถว pass แช่แข็ง ตารางปัด 2 ตำแหน่ง ส่วน tooltip แสดง 4 ตำแหน่งเพื่อตรวจทาน ปิดสวิตช์เหนือตารางเพื่อกลับไปใช้ตารางแบบเรียงได้
 
 ## เชื่อม Firebase สำหรับ Live Dashboard
 
