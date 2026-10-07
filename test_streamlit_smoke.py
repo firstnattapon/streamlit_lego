@@ -98,3 +98,30 @@ def test_hot_deploy_reloads_core_when_system_health_api_is_missing(monkeypatch):
 
     assert not app.exception
     assert callable(getattr(lego_dash_core, "system_health_rows", None))
+
+
+def test_hot_deploy_reloads_core_that_predates_the_retired_cash_column():
+    """A core cached from before cbf5da5 still lists the cash column in COLUMN_ORDER.
+
+    It has every API the older guard checked, so without LEGACY_DROPPED_COLS in the
+    guard the stale module is kept and the retired column keeps rendering.
+    """
+    retired = "ΔAₙ เงินจริง (USD)"
+    original_order = list(lego_dash_core.COLUMN_ORDER)
+    original_drop = lego_dash_core.LEGACY_DROPPED_COLS
+    try:
+        # Rebuild the pre-cbf5da5 shape: 18 columns, no legacy-drop API.
+        stale_order = original_order[:]
+        stale_order.insert(stale_order.index("Aₙ สะสม (USD)"), retired)
+        lego_dash_core.COLUMN_ORDER[:] = stale_order
+        del lego_dash_core.LEGACY_DROPPED_COLS
+
+        app = AppTest.from_file(str(Path(__file__).with_name("streamlit_app.py")))
+        app.run(timeout=20)
+
+        assert not app.exception
+        assert lego_dash_core.LEGACY_DROPPED_COLS == (retired,)
+        assert retired not in lego_dash_core.COLUMN_ORDER
+    finally:
+        lego_dash_core.COLUMN_ORDER[:] = original_order
+        lego_dash_core.LEGACY_DROPPED_COLS = original_drop
