@@ -12,7 +12,7 @@ def funding_row():
     row = dict(zip(COLUMN_ORDER, [
         "2026-09-15T14:16:09Z", "XYZ", "READY_BUY", 133, 1,
         27.34, 0, "TRIGGER_ACTION", "BUY", "READY_BUY", 182,
-        0, -5000, 0, 0, 0, 0, 0]))
+        0, -5000, 0, 0, 0, 0]))
     row.update(version=1, committed=True, market_ordinal=133,
                semantics=EXECUTION_TERMINAL_FROZEN_V2, cashflow_status="FINALIZED",
                execution_price=27.37, execution_quantity=182,
@@ -33,7 +33,7 @@ def test_funding_zero_and_next_terminal_fill_pass_independent_check():
                    "มูลค่าพอร์ต (USD)": 5096, "ส่วนต่างเป้าหมาย (USD)": 96,
                    "สถานะ": "READY_SELL", "ฝั่ง": "SELL", "จำนวนสั่ง (หุ้น)": 3,
                    "Rₙ อ้างอิง (USD)": reference, "ΔAₙ ต่อสเต็ป (USD)": delta,
-                   "ΔAₙ เงินจริง (USD)": delta, "Aₙ สะสม (USD)": delta, "Eₙ ส่วนเกินสะสม (USD)": delta - reference,
+                   "Aₙ สะสม (USD)": delta, "Eₙ ส่วนเกินสะสม (USD)": delta - reference,
                    "execution_price": 28, "execution_quantity": 3, "finalized_seq": 2,
                    "R_basis": reference, "initial_funding": False,
                    "previous_action_price": 27.37})
@@ -59,7 +59,7 @@ def test_historical_first_buy_drift_is_reported_and_not_rewritten():
     for key in ("initial_funding", "model_baseline_policy", "funding_reference_offset",
                 "previous_action_price", "previous_actual_cumulative"):
         row.pop(key)
-    for col in ("ΔAₙ ต่อสเต็ป (USD)", "ΔAₙ เงินจริง (USD)", "Aₙ สะสม (USD)", "Eₙ ส่วนเกินสะสม (USD)"):
+    for col in ("ΔAₙ ต่อสเต็ป (USD)", "Aₙ สะสม (USD)", "Eₙ ส่วนเกินสะสม (USD)"):
         row[col] = 5000 * (27.37 / 27.34 - 1)
     df = pd.DataFrame([row])
     assert not integrity_report(df)[1]

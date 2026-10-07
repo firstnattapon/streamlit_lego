@@ -39,10 +39,12 @@ COLUMN_ORDER = [
     "ส่วนต่างเป้าหมาย (USD)",  # 13
     "Rₙ อ้างอิง (USD)",       # 14
     "ΔAₙ ต่อสเต็ป (USD)",     # 15
-    "ΔAₙ เงินจริง (USD)",     # 16
-    "Aₙ สะสม (USD)",          # 17
-    "Eₙ ส่วนเกินสะสม (USD)",  # 18
+    "Aₙ สะสม (USD)",          # 16
+    "Eₙ ส่วนเกินสะสม (USD)",  # 17
 ]
+# คอลัมน์ที่ contract เลิกใช้แล้ว: แถวเก่าใน RTDB ยังมีคีย์นี้ค้างอยู่ จึงตัดทิ้งตอนอ่าน
+# (ไม่เคยเข้าสูตร Aₙ/Eₙ — เงินสด broker เก็บแยกที่ webull_lego_broker_cashflow)
+LEGACY_DROPPED_COLS = ("ΔAₙ เงินจริง (USD)",)
 META_COLS = ["run_id", "chain_key", "version", "committed", "semantics",
              "market_slot_id", "market_ordinal", "clock_mode", "schema_version",
              "ledger_version_at_observation", "E_mark_at_observation",
@@ -80,9 +82,9 @@ CASHFLOW_STATUSES = frozenset({
 
 # คอลัมน์เงิน 7 ตัว (6, 12–17) — round 2dp เฉพาะตอนแสดง (ตรง columns_presented ฝั่ง engine)
 MONEY_COLS = ["ราคา Pₙ (USD)", "มูลค่าพอร์ต (USD)", "ส่วนต่างเป้าหมาย (USD)",
-              "Rₙ อ้างอิง (USD)", "ΔAₙ ต่อสเต็ป (USD)", "ΔAₙ เงินจริง (USD)",
+              "Rₙ อ้างอิง (USD)", "ΔAₙ ต่อสเต็ป (USD)",
               "Aₙ สะสม (USD)", "Eₙ ส่วนเกินสะสม (USD)"]
-LEDGER_COLS = ["Rₙ อ้างอิง (USD)", "ΔAₙ ต่อสเต็ป (USD)", "ΔAₙ เงินจริง (USD)",
+LEDGER_COLS = ["Rₙ อ้างอิง (USD)", "ΔAₙ ต่อสเต็ป (USD)",
                "Aₙ สะสม (USD)", "Eₙ ส่วนเกินสะสม (USD)"]
 # คอลัมน์ที่ recompute ต้องมีครบ มิฉะนั้นไม่แตะ (fail safe)
 RECOMPUTE_REQUIRED = ["ราคา Pₙ (USD)", "สถานะ", "DNA step", "มูลค่าพอร์ต (USD)",
@@ -95,6 +97,12 @@ PASS_DNA_ZERO = "PASS_DNA_ZERO"
 PASS_THRESHOLD = "PASS_THRESHOLD"
 READY_BUY = "READY_BUY"
 READY_SELL = "READY_SELL"
+
+
+def _drop_legacy_cols(df: pd.DataFrame) -> pd.DataFrame:
+    """ตัดคอลัมน์ที่ contract เลิกใช้ (ถ้ามี) — ไม่แตะคอลัมน์อื่น"""
+    legacy = [c for c in LEGACY_DROPPED_COLS if c in df.columns]
+    return df.drop(columns=legacy) if legacy else df
 
 
 def rows_to_df(data) -> pd.DataFrame:
@@ -114,11 +122,12 @@ def rows_to_df(data) -> pd.DataFrame:
         return pd.DataFrame()
     if "version" in df.columns:
         df = df.sort_values("version")
-    return df.reset_index(drop=True)
+    return _drop_legacy_cols(df).reset_index(drop=True)
 
 
 def order_columns(df: pd.DataFrame) -> pd.DataFrame:
     """RTDB คืน key ไม่การันตีลำดับ -> บังคับ 17 คอลัมน์ตามสัญญา แล้วต่อ meta/อื่น ๆ"""
+    df = _drop_legacy_cols(df)
     cols = [c for c in COLUMN_ORDER if c in df.columns]
     cols += [c for c in META_COLS if c in df.columns]
     cols += [c for c in df.columns if c not in cols]
@@ -395,10 +404,11 @@ def integrity_report(df: pd.DataFrame, p0_hint: float | None = None,
       E1  FIX_C คงที่:   Vₙ + gapₙ = FIX_C ทุกแถว   (นิยาม gap = FIX_C − Vₙ)
       E2  มูลค่าพอร์ต:    Vₙ = holdingsₙ × Pₙ
       E3  อ้างอิง:        Rₙ = FIX_C × ln(Pₙ / P₀)
-      E4  ต่อสเต็ป:       v2 act จาก decision price; v3 act เฉพาะ FINALIZED และใช้
-                         execution_price; PASS/pending/rejected -> ΔAₙ = 0
-      E5  สะสม:          Aₙ = Aₙ₋₁ + ΔAₙ — ข้ามเฉพาะรอยต่อเปลี่ยน semantics
-                         (baseline Aₙ รีเซ็ตเป็น 0)
+      E4  ต่อสเต็ป:       ΔAₙ = FIX_C × (P_fill / P_acted − 1); v2 act จาก decision price,
+                         v3 act เฉพาะ FINALIZED และใช้ execution_price (VWAP);
+                         PASS/pending/rejected -> ΔAₙ = 0
+      E5  สะสม:          Aₙ = Aₙ₋₁ + ΔAₙ (ΔAₙ ต่อสเต็ปของโมเดล ไม่ใช่เงินสด broker) —
+                         ข้ามเฉพาะรอยต่อเปลี่ยน semantics (baseline Aₙ รีเซ็ตเป็น 0)
       E6  ส่วนเกิน (smooth): act -> Eₙ = Aₙ − Rₙ(row quote) ;
                          frozen -> Eₙ = Aₙ − FIX_C × ln(P_acted / P₀)
       E7  โครงสร้าง:      step เพิ่มตาม market slot (มี market_ordinal -> Δstep = Δordinal ≥ 1;
@@ -516,10 +526,7 @@ def integrity_report(df: pd.DataFrame, p0_hint: float | None = None,
     if n > 1:
         boundary = semantics.ne(semantics.shift(1))       # exact semantics boundary
         boundary.iloc[0] = False
-        dA_cash = (df["ΔAₙ เงินจริง (USD)"].astype(float)
-                   if "ΔAₙ เงินจริง (USD)" in df.columns
-                   else dA)
-        resid5 = A - (A.shift(1) + dA_cash)
+        resid5 = A - (A.shift(1) + dA)
         # v2 finalization can occur after later observation rows were committed.
         # Its per-fill previous_actual_cumulative is checked independently above.
         r5 = _max_abs(resid5[~boundary & ~frozen_v2 & ~frozen_v2.shift(1, fill_value=False)])
@@ -615,19 +622,9 @@ def recompute_gated_ledger(df: pd.DataFrame, p0: float | None = None) -> pd.Data
         execution_prices = pd.to_numeric(out["execution_price"], errors="coerce")
     else:
         execution_prices = pd.Series([np.nan] * len(out), index=out.index)
-    if "execution_quantity" in out.columns:
-        execution_quantities = pd.to_numeric(out["execution_quantity"], errors="coerce")
-    else:
-        execution_quantities = pd.Series([np.nan] * len(out), index=out.index)
 
     R = out["Rₙ อ้างอิง (USD)"].astype(float).tolist()
-    dA_model = out["ΔAₙ ต่อสเต็ป (USD)"].astype(float).tolist()
-    if "ΔAₙ เงินจริง (USD)" in out.columns:
-        dA_actual = pd.to_numeric(out["ΔAₙ เงินจริง (USD)"], errors="coerce").fillna(0.0).tolist()
-    elif "last_broker_cash_delta" in out.columns:
-        dA_actual = pd.to_numeric(out["last_broker_cash_delta"], errors="coerce").fillna(0.0).tolist()
-    else:
-        dA_actual = [0.0] * len(out)
+    dA = out["ΔAₙ ต่อสเต็ป (USD)"].astype(float).tolist()
     A = out["Aₙ สะสม (USD)"].astype(float).tolist()
     E = out["Eₙ ส่วนเกินสะสม (USD)"].astype(float).tolist()
 
@@ -647,28 +644,12 @@ def recompute_gated_ledger(df: pd.DataFrame, p0: float | None = None) -> pd.Data
                 acted, A_prev = Pi, 0.0
                 if execution[i] and execution_acted[i]:
                     action_price = float(execution_prices.iloc[i])
-                    d_model = fix_c * (action_price / acted - 1.0)
-                    dA_model[i] = d_model
-                    if "last_broker_cash_delta" in source.columns and pd.notna(source["last_broker_cash_delta"].iloc[i]):
-                        d_actual = float(source["last_broker_cash_delta"].iloc[i])
-                    elif "ΔAₙ เงินจริง (USD)" in source.columns and pd.notna(source["ΔAₙ เงินจริง (USD)"].iloc[i]):
-                        d_actual = float(source["ΔAₙ เงินจริง (USD)"].iloc[i])
-                    else:
-                        side = str(out["ฝั่ง"].iloc[i]).upper() if "ฝั่ง" in out.columns else ""
-                        sign = 1.0 if side == "SELL" else -1.0
-                        qty = float(execution_quantities.iloc[i]) if pd.notna(execution_quantities.iloc[i]) else 0.0
-                        fee = float(out["filled_fee"].iloc[i]) if "filled_fee" in out.columns and pd.notna(out["filled_fee"].iloc[i]) else (float(out["fee"].iloc[i]) if "fee" in out.columns and pd.notna(out["fee"].iloc[i]) else 0.0)
-                        d_actual = sign * (qty * action_price) - fee if qty > 0 else 0.0
-                    dA_actual[i] = d_actual
-                    A_prev += d_actual
-                    A[i] = A_prev
-                    E[i] = A_prev - R[i]
+                    d = fix_c * (action_price / acted - 1.0)
+                    A_prev += d
+                    dA[i], A[i], E[i] = d, A_prev, A_prev - R[i]
                     acted = action_price
                 else:
-                    dA_model[i] = 0.0
-                    dA_actual[i] = 0.0
-                    A[i] = 0.0
-                    E[i] = 0.0
+                    dA[i], A[i], E[i] = 0.0, 0.0, 0.0
             else:
                 # ชุดข้อมูลตัดหน้า chain: ไม่มี P_acted/A ก่อนแถวแรก จึงรักษา
                 # baseline ที่ persist มา แล้วเริ่มตรวจ/recompute จากแถวถัดไป.
@@ -700,37 +681,18 @@ def recompute_gated_ledger(df: pd.DataFrame, p0: float | None = None) -> pd.Data
             action_price = float(execution_prices.iloc[i])
 
         if action_price is not None:                  # act ที่ contract นั้นยืนยัน
-            d_model = fix_c * (action_price / acted - 1.0)
-            dA_model[i] = d_model
-            # Determine actual broker cashflow
-            if "last_broker_cash_delta" in source.columns and pd.notna(source["last_broker_cash_delta"].iloc[i]):
-                d_actual = float(source["last_broker_cash_delta"].iloc[i])
-            elif "ΔAₙ เงินจริง (USD)" in source.columns and pd.notna(source["ΔAₙ เงินจริง (USD)"].iloc[i]):
-                d_actual = float(source["ΔAₙ เงินจริง (USD)"].iloc[i])
-            elif execution[i] and execution_acted[i]:
-                side = str(out["ฝั่ง"].iloc[i]).upper() if "ฝั่ง" in out.columns else ""
-                sign = 1.0 if side == "SELL" else -1.0
-                qty = float(execution_quantities.iloc[i]) if pd.notna(execution_quantities.iloc[i]) else 0.0
-                fee = float(out["filled_fee"].iloc[i]) if "filled_fee" in out.columns and pd.notna(out["filled_fee"].iloc[i]) else (float(out["fee"].iloc[i]) if "fee" in out.columns and pd.notna(out["fee"].iloc[i]) else 0.0)
-                d_actual = sign * (qty * action_price) - fee if qty > 0 else 0.0
-            else:
-                d_actual = d_model
-            dA_actual[i] = d_actual
-            A_prev += d_actual
-            A[i] = A_prev
-            E[i] = A_prev - R[i]
+            d = fix_c * (action_price / acted - 1.0)
+            A_prev += d
+            dA[i], A[i], E[i] = d, A_prev, A_prev - R[i]
             acted = action_price
         else:                                         # PASS/pending/rejected: แช่แข็ง
-            dA_model[i] = 0.0
-            dA_actual[i] = 0.0
-            A[i] = A_prev
+            dA[i], A[i] = 0.0, A_prev
             if can_ref:
                 E[i] = A_prev - fix_c * math.log(acted / p0)
         previous_semantics = semantics[i]
 
     out["Rₙ อ้างอิง (USD)"] = R
-    out["ΔAₙ ต่อสเต็ป (USD)"] = dA_model
-    out["ΔAₙ เงินจริง (USD)"] = dA_actual
+    out["ΔAₙ ต่อสเต็ป (USD)"] = dA
     out["Aₙ สะสม (USD)"] = A
     out["Eₙ ส่วนเกินสะสม (USD)"] = E
     if bool(frozen_v2.any()):
