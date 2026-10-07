@@ -588,7 +588,8 @@ def integrity_report(df: pd.DataFrame, p0_hint: float | None = None,
     return report, bool(report["ผ่าน"].all())
 
 
-def recompute_gated_ledger(df: pd.DataFrame, p0: float | None = None) -> pd.DataFrame:
+def recompute_gated_ledger(df: pd.DataFrame, p0: float | None = None,
+                           trace: list | None = None) -> pd.DataFrame:
     """คำนวณ recurrence ใหม่ตาม semantics ของแถว โดยไม่แก้ decision evidence.
 
     ``gated_theoretical_v2`` ใช้ decision price เมื่อ READY_* เป็น act ตามสัญญาเดิม.
@@ -596,7 +597,14 @@ def recompute_gated_ledger(df: pd.DataFrame, p0: float | None = None) -> pd.Data
     ``cashflow_status=FINALIZED`` พร้อม ``execution_quantity>0`` และราคา > 0;
     pending/rejected/expired/PASS ล้วนแช่แข็ง. Rₙ ยังใช้ quote Pₙ ทุกแถว.
     semantics เก่าหรือไม่รู้จักคงค่าที่เก็บไว้ ไม่เดาสูตรใหม่ให้หลักฐานเก่า.
+
+    ``trace`` (ไม่บังคับ): list ที่ถูกเติมทีละแถว (1 dict/แถว) ว่าแถวนั้นเดินสูตรไหนด้วยค่าอะไร
+    — ใช้อธิบายที่มาของตัวเลขตอนชี้เมาส์ (``ledger_explanations``) ไม่มีผลต่อค่าที่คืน
     """
+    def note(**fields) -> None:
+        if trace is not None:
+            trace.append(fields)
+
     if df.empty or any(c not in df.columns for c in RECOMPUTE_REQUIRED):
         # fail safe: ไม่ครบคอลัมน์ -> ไม่คำนวณ ledger เลย
         # คืน copy เสมอ: dashboard เป็น read-only จึงห้ามเขียนทับ frame ของผู้เรียก
@@ -629,6 +637,7 @@ def recompute_gated_ledger(df: pd.DataFrame, p0: float | None = None) -> pd.Data
     E = out["Eₙ ส่วนเกินสะสม (USD)"].astype(float).tolist()
 
     acted: float | None = None
+    acted_idx: int | None = None        # แถวที่ตั้ง P_acted ล่าสุด (ไว้อธิบายตอนชี้เมาส์)
     A_prev = 0.0
     previous_semantics: str | None = None
     for i in range(len(out)):
@@ -642,13 +651,18 @@ def recompute_gated_ledger(df: pd.DataFrame, p0: float | None = None) -> pd.Data
                 # P_acted seed ของ chain คือ quote P₀. v2 genesis ยังเป็นศูนย์;
                 # v3 genesis อาจถูก worker patch ภายหลังด้วย fill ที่มี slippage.
                 acted, A_prev = Pi, 0.0
+                acted_idx = 0
                 if execution[i] and execution_acted[i]:
                     action_price = float(execution_prices.iloc[i])
                     d = fix_c * (action_price / acted - 1.0)
+                    note(kind="genesis_fill", p_fill=action_price, acted_before=acted,
+                         acted_idx_before=0, A_prev=0.0)
                     A_prev += d
                     dA[i], A[i], E[i] = d, A_prev, A_prev - R[i]
                     acted = action_price
                 else:
+                    note(kind="genesis", acted_before=acted, acted_idx_before=0,
+                         A_prev=0.0)
                     dA[i], A[i], E[i] = 0.0, 0.0, 0.0
             else:
                 # ชุดข้อมูลตัดหน้า chain: ไม่มี P_acted/A ก่อนแถวแรก จึงรักษา
@@ -658,12 +672,17 @@ def recompute_gated_ledger(df: pd.DataFrame, p0: float | None = None) -> pd.Data
                     acted = float(execution_prices.iloc[i])
                 else:
                     acted = Pi
+                acted_idx = 0
+                note(kind="window_start", acted_before=acted, acted_idx_before=0,
+                     A_prev=A_prev)
             previous_semantics = semantics[i]
             continue
 
         semantics_changed = semantics[i] != previous_semantics
         if not known:                                 # legacy/unknown: คงค่าเดิม
             acted, A_prev = Pi, float(A[i])
+            acted_idx = i
+            note(kind="stored")
             previous_semantics = semantics[i]
             continue
 
@@ -673,6 +692,7 @@ def recompute_gated_ledger(df: pd.DataFrame, p0: float | None = None) -> pd.Data
             A_prev = 0.0
         if acted is None:                             # ไม่มี genesis ในชุด -> ใช้แถวก่อนหน้า
             acted, A_prev = float(p.iloc[i - 1]), float(A[i - 1])
+            acted_idx = i - 1
 
         action_price: float | None = None
         if gated[i] and gated_acted[i]:
@@ -680,12 +700,19 @@ def recompute_gated_ledger(df: pd.DataFrame, p0: float | None = None) -> pd.Data
         elif execution[i] and execution_acted[i]:
             action_price = float(execution_prices.iloc[i])
 
+        step_note = dict(acted_before=acted, acted_idx_before=acted_idx,
+                         A_prev=A_prev, reset=semantics_changed,
+                         prev_semantics=previous_semantics)
         if action_price is not None:                  # act ที่ contract นั้นยืนยัน
             d = fix_c * (action_price / acted - 1.0)
+            note(kind="act", p_fill=action_price,
+                 fill_from="execution" if execution[i] else "quote", **step_note)
             A_prev += d
             dA[i], A[i], E[i] = d, A_prev, A_prev - R[i]
             acted = action_price
+            acted_idx = i
         else:                                         # PASS/pending/rejected: แช่แข็ง
+            note(kind="frozen", **step_note)
             dA[i], A[i] = 0.0, A_prev
             if can_ref:
                 E[i] = A_prev - fix_c * math.log(acted / p0)
@@ -716,6 +743,311 @@ def count_ledger_corrections(stored: pd.DataFrame, fixed: pd.DataFrame,
     a = stored.reset_index(drop=True)[cols].astype(float)
     b = fixed.reset_index(drop=True)[cols].astype(float)
     return int(((a - b).abs().max(axis=1) > tol).sum())
+
+
+# ----------------------------------------------------------------------------
+# ที่มาของตัวเลข Rₙ / ΔAₙ / Aₙ / Eₙ ต่อเซลล์ (ข้อความ tooltip ตอนชี้เมาส์บนตาราง)
+# ข้อความมาจาก trace ของ recompute_gated_ledger เอง — สูตรกับตัวเลขที่แทนค่าจึงเป็นชุด
+# เดียวกับที่คำนวณจริง ไม่ใช่การเดาย้อนจากค่าที่แสดง
+# ----------------------------------------------------------------------------
+_EXECUTION_SEMANTICS = (EXECUTION_CONFIRMED_SEMANTICS, *FROZEN_TERMINAL_SEMANTICS)
+
+
+def _f(x: float, digits: int = 4) -> str:
+    return f"{x:,.{digits}f}"
+
+
+def _op(x: float, digits: int = 4) -> str:
+    """ตัวถูกดำเนินการหลังเครื่องหมาย (+ − ×): ค่าติดลบใส่วงเล็บให้อ่านง่าย"""
+    text = _f(x, digits)
+    return f"({text})" if text.startswith("-") else text
+
+
+def _meta_num(row, key: str) -> float | None:
+    """ฟิลด์ meta ที่เป็นตัวเลข finite; ไม่มี/NaN/อ่านไม่ได้ -> None"""
+    try:
+        value = float(row.get(key))
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
+
+
+def _meta_flag(row, key: str) -> bool:
+    value = row.get(key)
+    return isinstance(value, (bool, np.bool_)) and bool(value)
+
+
+class _LedgerExplainer:
+    def __init__(self, df: pd.DataFrame, p0: float | None):
+        self.src = df.reset_index(drop=True)
+        self.trace: list[dict] = []
+        self.fixed = recompute_gated_ledger(
+            self.src, p0=p0, trace=self.trace).reset_index(drop=True)
+        self.traced = len(self.trace) == len(self.src)
+        self.ctx = _reference_context(self.src, p0)       # (P₀, FIX_C) | None
+        self.known = _known_cashflow_flags(self.src)
+        self.semantics = _semantics(self.src).tolist()
+        self.frozen_v2 = [s in FROZEN_TERMINAL_SEMANTICS for s in self.semantics]
+        self.p0_from = ("state pointer (anchor ของ chain)" if p0 is not None
+                        else "ราคา Pₙ ของแถว genesis")
+        has_basis = {"มูลค่าพอร์ต (USD)", "ส่วนต่างเป้าหมาย (USD)"}.issubset(self.src.columns)
+        self.fix_c = (float(self.src["มูลค่าพอร์ต (USD)"].astype(float).iloc[0]
+                            - self.src["ส่วนต่างเป้าหมาย (USD)"].astype(float).iloc[0])
+                      if has_basis and len(self.src) else None)
+
+    # ---- helpers -----------------------------------------------------------
+    def _val(self, i: int, col: str) -> float:
+        return float(self.fixed.at[i, col])
+
+    def _where(self, idx: int | None) -> str:
+        if idx is None or "DNA step" not in self.src.columns:
+            return "—"
+        return f"DNA step {int(self.src['DNA step'].iloc[idx])}"
+
+    def _acted_origin(self, t: dict) -> str:
+        """P_acted มาจากแถวไหน: seed ของ genesis (ยังไม่เคย act) หรือราคาแถว act ล่าสุด"""
+        idx = t.get("acted_idx_before")
+        kind = self.trace[idx]["kind"] if idx is not None else None
+        if kind == "genesis":
+            return "P₀ = quote ของแถว genesis (ยังไม่เคย act)"
+        if kind == "window_start":
+            return f"ราคาแถวแรกของช่วงที่โหลด · {self._where(idx)}"
+        return f"ราคา act ล่าสุด · {self._where(idx)}"
+
+    def _freeze_reason(self, i: int) -> str:
+        row = self.src.iloc[i]
+        status = str(row.get("สถานะ", ""))
+        cashflow = row.get("cashflow_status")
+        cashflow = "—" if pd.isna(cashflow) else str(cashflow)
+        if status == PASS_DNA_ZERO:
+            return "PASS_DNA_ZERO — DNA signal = 0 ไม่เทรด"
+        if status == PASS_THRESHOLD:
+            return "PASS_THRESHOLD — signal = 1 แต่ |ส่วนต่างเป้าหมาย| ≤ DIFF ไม่ยิง order"
+        if status in (READY_BUY, READY_SELL):
+            if self.semantics[i] in _EXECUTION_SEMANTICS:
+                return (f"{status} เป็นแค่ intent — cashflow_status = {cashflow} "
+                        "ยังไม่มี fill ที่ FINALIZED (qty/price > 0)")
+            return f"{status} แต่ DNA signal ≠ 1 หรือจำนวนสั่ง = 0 จึงไม่นับเป็น act"
+        return f"สถานะ {status} ไม่ใช่การเทรด"
+
+    def _title(self, i: int, symbol: str, label: str) -> str:
+        step = int(self.src["DNA step"].iloc[i]) if "DNA step" in self.src.columns else i
+        return f"{symbol} · DNA step {step} · {label}"
+
+    def _stored(self, i: int, symbol: str, col: str, why: str) -> str:
+        return "\n".join([self._title(i, symbol, "ค่าที่บันทึกไว้"),
+                          f"{symbol} = {_f(self._val(i, col))}", why])
+
+    # ---- Rₙ ---------------------------------------------------------------
+    def reference(self, i: int) -> str:
+        col = "Rₙ อ้างอิง (USD)"
+        if col not in self.fixed.columns:
+            return ""
+        R = self._val(i, col)
+        if self.ctx is None or not self.known[i]:
+            why = (f"semantics {self.semantics[i]!r} เก่า/ไม่รู้จัก — dashboard ไม่คำนวณทับ"
+                   if not self.known[i] else
+                   "ไม่ทราบ P₀ (ไม่มีแถว genesis และไม่มี state pointer)")
+            return self._stored(i, "Rₙ", col, why)
+        p0, fix_c = self.ctx
+        P = float(self.src["ราคา Pₙ (USD)"].iloc[i])
+        return "\n".join([
+            self._title(i, "Rₙ", "เส้นอ้างอิง ไม่เคยแช่แข็ง"),
+            "Rₙ = FIX_C × ln(Pₙ / P₀)",
+            f"   = {_f(fix_c)} × ln({_f(P)} / {_f(p0)})",
+            f"   = {_f(fix_c)} × {_op(math.log(P / p0), 6)}",
+            f"   = {_f(R)}",
+            f"FIX_C = มูลค่าพอร์ต − ส่วนต่างเป้าหมาย (แถวแรก) = {_f(fix_c)}",
+            f"P₀ = {_f(p0)} จาก {self.p0_from}",
+            "Pₙ คือ quote ของแถวนี้ — Rₙ ขยับทุกแถวแม้ไม่ได้เทรด",
+        ])
+
+    # ---- ΔAₙ / Aₙ / Eₙ ----------------------------------------------------
+    def delta(self, i: int) -> str:
+        col = "ΔAₙ ต่อสเต็ป (USD)"
+        if col not in self.fixed.columns:
+            return ""
+        if not self.traced:
+            return self._stored(i, "ΔAₙ", col, "คอลัมน์ไม่ครบ — dashboard ไม่คำนวณ ledger ใหม่")
+        if self.frozen_v2[i]:
+            return self._persisted(i, "delta")
+        t = self.trace[i]
+        kind, d = t["kind"], self._val(i, col)
+        if kind in ("act", "genesis_fill"):
+            fix_c, pf, pa = self.fix_c, t["p_fill"], t["acted_before"]
+            fill = ("ราคา fill จริง (execution_price) — quote Pₙ = "
+                    f"{_f(float(self.src['ราคา Pₙ (USD)'].iloc[i]))}"
+                    if t.get("fill_from", "execution") == "execution" else
+                    "Pₙ ของแถวนี้ (ราคาตัดสินใจ — gated_theoretical_v2)")
+            return "\n".join([
+                self._title(i, "ΔAₙ", "act — เทรดจริง"),
+                "ΔAₙ = FIX_C × (P_fill / P_acted − 1)",
+                f"    = {_f(fix_c)} × ({_f(pf)} / {_f(pa)} − 1)",
+                f"    = {_f(d)}",
+                f"P_fill = {_f(pf)} = {fill}",
+                f"P_acted = {_f(pa)} = {self._acted_origin(t)}",
+                "หลัง act นี้ P_acted เลื่อนมาเป็น P_fill",
+            ])
+        if kind == "frozen":
+            return "\n".join([
+                self._title(i, "ΔAₙ", "แช่แข็ง ไม่เทรดรอบนี้"),
+                "ΔAₙ = 0",
+                f"เหตุผล: {self._freeze_reason(i)}",
+                "ไม่มี order → ไม่มีกำไร/ขาดทุนก้าวนี้",
+                f"P_acted ค้างที่ {_f(t['acted_before'])} = {self._acted_origin(t)}",
+            ])
+        if kind == "genesis":
+            return "\n".join([
+                self._title(i, "ΔAₙ", "genesis — แถวแรกของ chain"),
+                "ΔAₙ = 0 — ยังไม่เคยเทรด ไม่มีราคา act ให้เทียบ",
+                f"P_acted ตั้งต้น = {_f(t['acted_before'])} = {self._acted_origin(t)}",
+            ])
+        if kind == "window_start":
+            return self._stored(i, "ΔAₙ", col, "แถวแรกของช่วงที่โหลด (chain ถูกตัดหน้า) "
+                                "ไม่มีแถวก่อนให้เทียบ — คงค่าที่บันทึก คำนวณใหม่จากแถวถัดไป")
+        return self._stored(i, "ΔAₙ", col, f"semantics {self.semantics[i]!r} เก่า/ไม่รู้จัก "
+                            "— dashboard ไม่เดาสูตรใหม่ให้")
+
+    def actual(self, i: int) -> str:
+        col = "Aₙ สะสม (USD)"
+        if col not in self.fixed.columns:
+            return ""
+        if not self.traced:
+            return self._stored(i, "Aₙ", col, "คอลัมน์ไม่ครบ — dashboard ไม่คำนวณ ledger ใหม่")
+        if self.frozen_v2[i]:
+            return self._persisted(i, "actual")
+        t = self.trace[i]
+        kind, A = t["kind"], self._val(i, col)
+        d = self._val(i, "ΔAₙ ต่อสเต็ป (USD)")
+        reset = ([f"Aₙ₋₁ ถูกรีเซ็ตเป็น 0 เพราะ semantics เปลี่ยน "
+                  f"({t.get('prev_semantics')} → {self.semantics[i]})"]
+                 if t.get("reset") else [])
+        if kind in ("act", "genesis_fill"):
+            return "\n".join([
+                self._title(i, "Aₙ", "สะสมต่อจากก้าวก่อน"),
+                "Aₙ = Aₙ₋₁ + ΔAₙ",
+                f"   = {_f(t['A_prev'])} + {_op(d)}",
+                f"   = {_f(A)}", *reset])
+        if kind == "frozen":
+            return "\n".join([
+                self._title(i, "Aₙ", "ค้างไว้ (แช่แข็ง)"),
+                "Aₙ = Aₙ₋₁   (ΔAₙ = 0 จึงไม่เพิ่ม)",
+                f"   = {_f(t['A_prev'])}", *reset])
+        if kind == "genesis":
+            return "\n".join([self._title(i, "Aₙ", "genesis — แถวแรกของ chain"),
+                              "Aₙ = 0 — เริ่มนับสะสมจากศูนย์"])
+        if kind == "window_start":
+            return self._stored(i, "Aₙ", col, "baseline ที่บันทึกไว้ ณ แถวแรกของช่วงที่โหลด")
+        return self._stored(i, "Aₙ", col, f"semantics {self.semantics[i]!r} เก่า/ไม่รู้จัก "
+                            "— dashboard ไม่เดาสูตรใหม่ให้")
+
+    def excess(self, i: int) -> str:
+        col = "Eₙ ส่วนเกินสะสม (USD)"
+        if col not in self.fixed.columns:
+            return ""
+        if not self.traced:
+            return self._stored(i, "Eₙ", col, "คอลัมน์ไม่ครบ — dashboard ไม่คำนวณ ledger ใหม่")
+        if self.frozen_v2[i]:
+            return self._persisted(i, "excess")
+        t = self.trace[i]
+        kind, E = t["kind"], self._val(i, col)
+        A = self._val(i, "Aₙ สะสม (USD)")
+        if kind in ("act", "genesis_fill"):
+            R = self._val(i, "Rₙ อ้างอิง (USD)")
+            return "\n".join([
+                self._title(i, "Eₙ", "act — เทียบกับเส้นอ้างอิงที่ราคาแถวนี้"),
+                "Eₙ = Aₙ − Rₙ",
+                f"   = {_f(A)} − {_op(R)}",
+                f"   = {_f(E)}",
+                "บวก = ที่ทำได้จริง (Aₙ) เกินเส้นอ้างอิง (Rₙ)"])
+        if kind == "frozen" and self.ctx is not None:
+            p0, fix_c = self.ctx
+            pa = t["acted_before"]
+            ref = fix_c * math.log(pa / p0)
+            return "\n".join([
+                self._title(i, "Eₙ", "แช่แข็ง (smooth)"),
+                "Eₙ = Aₙ − FIX_C × ln(P_acted / P₀)",
+                f"   = {_f(A)} − {_f(fix_c)} × ln({_f(pa)} / {_f(p0)})",
+                f"   = {_f(A)} − {_op(ref)}",
+                f"   = {_f(E)}",
+                "ใช้ P_acted (ไม่ใช่ Pₙ) → ค่านิ่งช่วงไม่เทรด ไม่แกว่งตามราคาตลาด"])
+        if kind == "genesis":
+            return "\n".join([self._title(i, "Eₙ", "genesis — แถวแรกของ chain"),
+                              "Eₙ = 0 — ยังไม่มีส่วนเกิน (Aₙ = 0)"])
+        if kind in ("frozen", "window_start"):
+            why = ("ไม่ทราบ P₀ (ไม่มีแถว genesis และไม่มี state pointer)" if kind == "frozen"
+                   else "baseline ที่บันทึกไว้ ณ แถวแรกของช่วงที่โหลด")
+            return self._stored(i, "Eₙ", col, why)
+        return self._stored(i, "Eₙ", col, f"semantics {self.semantics[i]!r} เก่า/ไม่รู้จัก "
+                            "— dashboard ไม่เดาสูตรใหม่ให้")
+
+    # ---- แถว frozen terminal v2/v3: ค่า ledger เป็นของ worker (ห้ามคำนวณทับ) ----
+    def _persisted(self, i: int, which: str) -> str:
+        row = self.src.iloc[i]
+        symbol, col = {"delta": ("ΔAₙ", "ΔAₙ ต่อสเต็ป (USD)"),
+                       "actual": ("Aₙ", "Aₙ สะสม (USD)"),
+                       "excess": ("Eₙ", "Eₙ ส่วนเกินสะสม (USD)")}[which]
+        value = self._val(i, col)
+        title = self._title(i, symbol, "ค่าที่ worker บันทึก (terminal fill)")
+        keep = "dashboard แสดงค่าที่ freeze ไว้ ไม่คำนวณทับ"
+        finalized = row.get("cashflow_status") == CASHFLOW_FINALIZED
+        price = _meta_num(row, "execution_price")
+        prev_price = _meta_num(row, "previous_action_price")
+        prev_A = _meta_num(row, "previous_actual_cumulative")
+        basis = _meta_num(row, "R_basis")
+        if which == "delta":
+            if finalized and _meta_flag(row, "initial_funding"):
+                return "\n".join([title, "ΔAₙ = 0 — initial funding",
+                                  f"policy {FUNDING_BASELINE_POLICY}: ซื้อครั้งแรกเป็นเงินตั้งต้น "
+                                  "ไม่ใช่กำไร/ขาดทุน", keep])
+            if finalized and price is not None and prev_price and self.fix_c is not None:
+                return "\n".join([
+                    title, "ΔAₙ = FIX_C × (execution_price / previous_action_price − 1)",
+                    f"    = {_f(self.fix_c)} × ({_f(price)} / {_f(prev_price)} − 1)",
+                    f"    = {_f(value)}", keep])
+            if not finalized:
+                status = row.get("cashflow_status")
+                return "\n".join([title, "ΔAₙ = 0 — ยังไม่มี fill ที่ FINALIZED "
+                                  f"(cashflow_status = {'—' if pd.isna(status) else status})",
+                                  keep])
+        elif which == "actual":
+            d = self._val(i, "ΔAₙ ต่อสเต็ป (USD)")
+            if finalized and prev_A is not None:
+                return "\n".join([title, "Aₙ = previous_actual_cumulative + ΔAₙ",
+                                  f"   = {_f(prev_A)} + {_op(d)}", f"   = {_f(value)}", keep])
+            if not finalized:
+                return "\n".join([title, f"Aₙ = {_f(value)} — ค้างที่ fill ล่าสุดที่มองเห็นตอนสังเกต",
+                                  "แถวที่ไม่มี fill ไม่ขยับ Aₙ", keep])
+        else:
+            A = self._val(i, "Aₙ สะสม (USD)")
+            if basis is not None:
+                lines = [title, "Eₙ = Aₙ − R_basis", f"   = {_f(A)} − {_op(basis)}",
+                         f"   = {_f(value)}",
+                         "R_basis = ฐานอ้างอิง ณ fill ที่ worker บันทึก (Rₙ − funding_reference_offset)",
+                         keep]
+                mark = _meta_num(row, "E_mark_at_observation")
+                if mark is not None:
+                    lines.insert(-1, f"E_mark (ตามราคาตลาดตอนสังเกต) = {_f(mark)} — แยกต่างหาก "
+                                     "ไม่ใช่ Eₙ")
+                return "\n".join(lines)
+        return "\n".join([title, f"{symbol} = {_f(value)}", keep])
+
+
+def ledger_explanations(df: pd.DataFrame, p0: float | None = None) -> list[dict[str, str]]:
+    """ที่มาของตัวเลข Rₙ / ΔAₙ / Aₙ / Eₙ ของทุกแถว (ลำดับตรงกับ ``recompute_gated_ledger``)
+
+    คืน list ยาวเท่าจำนวนแถว แต่ละช่อง = ``{ชื่อคอลัมน์ ledger: ข้อความหลายบรรทัด}``
+    บรรทัดแรกเป็นหัวข้อ ที่เหลือคือสูตรพร้อมแทนค่าจริงของแถวนั้น. read-only:
+    เรียก ``recompute_gated_ledger`` ด้วย ``trace`` แล้วเล่าเฉพาะสิ่งที่มันทำ
+    """
+    if df.empty:
+        return []
+    ex = _LedgerExplainer(df, p0)
+    return [{"Rₙ อ้างอิง (USD)": ex.reference(i),
+             "ΔAₙ ต่อสเต็ป (USD)": ex.delta(i),
+             "Aₙ สะสม (USD)": ex.actual(i),
+             "Eₙ ส่วนเกินสะสม (USD)": ex.excess(i)}
+            for i in range(len(ex.src))]
 
 
 # ============================================================================

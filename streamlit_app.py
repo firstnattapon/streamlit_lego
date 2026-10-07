@@ -17,10 +17,12 @@ import json
 import firebase_admin
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from firebase_admin import credentials, db
 
 from dna_engine import DNAError
 import lego_dash_core as _lego_dash_core
+from lego_hover_table import build_hover_table_html, hover_table_height
 
 # Streamlit reruns the entry script in a long-lived process. During a hot deploy,
 # sys.modules can still hold the previous lego_dash_core while this file is newer.
@@ -31,18 +33,19 @@ _REQUIRED_DASH_CORE_API = (
     "FROZEN_TERMINAL_SEMANTICS",
     "system_health_rows",
     "LEGACY_DROPPED_COLS",
+    "ledger_explanations",
 )
 if any(not hasattr(_lego_dash_core, name) for name in _REQUIRED_DASH_CORE_API):
     _lego_dash_core = importlib.reload(_lego_dash_core)
 
 from lego_dash_core import (DEFAULT_GATED_DNA, EXECUTION_CONFIRMED_SEMANTICS,
-                            EXECUTION_TERMINAL_FROZEN_V2,
+                            EXECUTION_TERMINAL_FROZEN_V2, LEDGER_COLS,
                             MAX_REBALANCING_STEPS, MONEY_COLS,
                             build_gate_actions, count_ledger_corrections,
                             default_chain_index, filter_audit_rows,
                             gated_rebalancing_cashflow_from_prices,
-                            integrity_report, order_columns,
-                            pending_broker_fee_count,
+                            integrity_report, ledger_explanations,
+                            order_columns, pending_broker_fee_count,
                             rebalancing_cashflow_from_prices,
                             recompute_gated_ledger, rows_to_df,
                             simulate_rebalancing_prices)
@@ -78,6 +81,33 @@ def _init():
 
 def load_rows() -> pd.DataFrame:
     return rows_to_df(db.reference(ROWS_PATH).get())
+
+
+def render_ledger_table(show: pd.DataFrame, persisted_df: pd.DataFrame,
+                        p0_hint: float | None) -> None:
+    """ตาราง 17 คอลัมน์: โหมดชี้เมาส์ดูที่มาของ Rₙ/ΔAₙ/Aₙ/Eₙ (default) หรือ st.dataframe เรียงได้
+
+    ข้อความที่มามาจาก trace ของ recompute_gated_ledger บนข้อมูลชุดเดียวกับที่ตารางแสดง
+    (persisted_df) จึงเรียงแถวตรงกับ ``show`` และตัวเลขที่แทนค่าคือชุดที่คำนวณจริง
+    """
+    hover = st.toggle("🖱️ ชี้เมาส์ที่ตัวเลข Rₙ / ΔAₙ / Aₙ / Eₙ เพื่อดูที่มา", value=True,
+                      key="live_hover_table",
+                      help="ปิดเพื่อใช้ตารางแบบเรียง/กรองได้ (st.dataframe) — แต่ไม่มี tooltip ที่มา")
+    if hover:
+        try:
+            tips = ledger_explanations(persisted_df, p0=p0_hint)
+            theme = getattr(getattr(st.context, "theme", None), "type", None)
+            components.html(
+                build_hover_table_html(show, tips, LEDGER_COLS, MONEY_COLS, theme=theme),
+                height=hover_table_height(len(show)))
+            st.caption("ชี้เมาส์ (หรือกด Tab) ที่ตัวเลขคอลัมน์ Rₙ · ΔAₙ · Aₙ · Eₙ — "
+                       "tooltip แสดงสูตรพร้อมแทนค่าจริงของแถวนั้น และ P_acted/Aₙ₋₁ มาจากแถวไหน "
+                       "(ตารางปัด 2 ตำแหน่ง ส่วน tooltip แสดง 4 ตำแหน่ง)")
+            return
+        except Exception as exc:   # tooltip เป็นส่วนเสริม — ห้ามทำให้ตารางหลักล่ม
+            st.warning(f"สร้างตารางแบบชี้เมาส์ไม่ได้ ({type(exc).__name__}: {exc}) "
+                       "— แสดงตารางปกติแทน")
+    st.dataframe(show, width="stretch")
 
 
 def render_live_dashboard() -> None:
@@ -193,7 +223,7 @@ def render_live_dashboard() -> None:
     for col in MONEY_COLS:
         if col in show:
             show[col] = show[col].astype(float).round(2)
-    st.dataframe(show, width="stretch")
+    render_ledger_table(show, persisted_df, p0_hint)
 
     # Audit the persisted evidence, before any display-only recomputation.
     with st.expander("🔎 Integrity check — สมการ LEGO (E1–E8)", expanded=False):
