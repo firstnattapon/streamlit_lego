@@ -30,6 +30,7 @@ import lego_dash_core as _lego_dash_core
 _REQUIRED_DASH_CORE_API = (
     "FROZEN_TERMINAL_SEMANTICS",
     "system_health_rows",
+    "LEGACY_DROPPED_COLS",
 )
 if any(not hasattr(_lego_dash_core, name) for name in _REQUIRED_DASH_CORE_API):
     _lego_dash_core = importlib.reload(_lego_dash_core)
