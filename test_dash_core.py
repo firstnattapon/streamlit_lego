@@ -47,19 +47,17 @@ def _mk_chain(prices: list[float], holdings: list[float], signals: list[int]) ->
         traded = status in ("READY_BUY", "READY_SELL")
 
         if n == 0:
-            R = dA = dA_act = A = E = 0.0
+            R = dA = A = E = 0.0
             acted = p
         elif traded:
             R = FIX_C * math.log(p / p0)
             dA = FIX_C * (p / acted - 1.0)
-            dA_act = dA
-            A = A_prev + dA_act
+            A = A_prev + dA
             E = A - R
             acted = p
         else:                                     # pass (รวม PASS_THRESHOLD) -> แช่แข็ง
             R = FIX_C * math.log(p / p0)
             dA = 0.0
-            dA_act = 0.0
             A = A_prev
             E = A - FIX_C * math.log(acted / p0)
         A_prev = A
@@ -80,7 +78,6 @@ def _mk_chain(prices: list[float], holdings: list[float], signals: list[int]) ->
             "ส่วนต่างเป้าหมาย (USD)": gap,
             "Rₙ อ้างอิง (USD)": R,
             "ΔAₙ ต่อสเต็ป (USD)": dA,
-            "ΔAₙ เงินจริง (USD)": dA_act,
             "Aₙ สะสม (USD)": A,
             "Eₙ ส่วนเกินสะสม (USD)": E,
             "run_id": "rid" + f"{n:029d}",
@@ -301,7 +298,7 @@ def _mk_realized_chain(prices: list[float], realized_deltas: list[float],
             "คำสั่ง": "PASS", "ฝั่ง": "", "เหตุผล": "PASS_THRESHOLD",
             "จำนวนสั่ง (หุ้น)": 0.0,
             "มูลค่าพอร์ต (USD)": v, "ส่วนต่างเป้าหมาย (USD)": v - FIX_C,
-            "Rₙ อ้างอิง (USD)": R, "ΔAₙ ต่อสเต็ป (USD)": dA, "ΔAₙ เงินจริง (USD)": dA,
+            "Rₙ อ้างอิง (USD)": R, "ΔAₙ ต่อสเต็ป (USD)": dA,
             "Aₙ สะสม (USD)": A, "Eₙ ส่วนเกินสะสม (USD)": A - R if not genesis else 0.0,
             "run_id": "rlz" + f"{start_version + n:029d}",
             "chain_key": "APLS_abc123def456",
@@ -354,7 +351,7 @@ def _mk_gated_cont(prices, signals, start_version, start_step,
             "เหตุผล": "PASS_DNA_ZERO" if sig == 0 else "PASS_THRESHOLD",
             "จำนวนสั่ง (หุ้น)": 0.0,
             "มูลค่าพอร์ต (USD)": v, "ส่วนต่างเป้าหมาย (USD)": v - FIX_C,
-            "Rₙ อ้างอิง (USD)": R, "ΔAₙ ต่อสเต็ป (USD)": dA, "ΔAₙ เงินจริง (USD)": dA,
+            "Rₙ อ้างอิง (USD)": R, "ΔAₙ ต่อสเต็ป (USD)": dA,
             "Aₙ สะสม (USD)": A, "Eₙ ส่วนเกินสะสม (USD)": E,
             "run_id": "gat" + f"{start_version + n:029d}",
             "chain_key": "APLS_abc123def456",

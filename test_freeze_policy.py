@@ -52,7 +52,6 @@ def _rows(cases: list[tuple[int, str, float]]) -> pd.DataFrame:
             "ส่วนต่างเป้าหมาย (USD)": gap,
             "Rₙ อ้างอิง (USD)": reference,
             "ΔAₙ ต่อสเต็ป (USD)": delta,
-            "ΔAₙ เงินจริง (USD)": delta if executed else 0.0,
             "Aₙ สะสม (USD)": accumulated + (delta if not executed and i > 0 else 0.0),
             "Eₙ ส่วนเกินสะสม (USD)": excess,
             "run_id": f"r{i}",
