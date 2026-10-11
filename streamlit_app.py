@@ -449,7 +449,8 @@ def render_cheat_sheet(stem: str) -> None:
         return
     image = CHEAT_SHEET_DIR / f"{stem}.{mmd_digest(source)}.png"
     if image.is_file():
-        st.image(str(image))       # ภาพ render ที่ scale 3 — เบราว์เซอร์ย่อให้พอดีคอลัมน์ จึงคมบนจอ retina
+        # output_format="PNG": ค่าเริ่มต้น "auto" ส่งภาพที่ไม่มี alpha เป็น JPEG แบบสูญเสีย ตัวอักษรในแผนภาพจะมัว
+        st.image(str(image), output_format="PNG")   # render ที่ scale 3 — เบราว์เซอร์ย่อให้พอดีคอลัมน์ จึงคมบนจอ retina
     else:
         st.warning("ภาพของแผนภาพนี้ยังไม่ตรงกับไฟล์ .mmd ล่าสุด — "
                    "รัน `python tools/render_cheat_sheet.py` แล้ว commit ภาพใหม่")

@@ -1,13 +1,13 @@
 flowchart TD
-    S["0. จำแค่ 2 ค่า<br/>c = Fix_c ปัจจุบัน<br/>beta = offset (เริ่ม 0)<br/>p₀ = P₀ ตรึงไว้ ไม่ re-anchor"] --> A["1. รับทุนใหม่ c′<br/>จุดหมุน P′ = P_acted<br/>(ราคา ACT ล่าสุด)"]
+    S["0. จำแค่ 2 ค่า<br/>c = Fix_c ปัจจุบัน<br/>beta = offset (เริ่ม 0)<br/>p₀ = P₀ ตรึงไว้ ไม่ re-anchor"] --> A["1. รับทุนใหม่ c′<br/>จุดหมุน P′ = P_acted<br/>(ราคา ACT ล่าสุด · ไม่ใช่ราคาตลาดตอนนี้)"]
 
     A --> B{"2. ปรับได้ ?<br/>c′ ≠ c · c′ > 0 · P′ > 0"}
 
     B -->|"ใช่"| C["3. ROLLOVER ครั้งเดียว<br/>beta += (c − c′) · ln(P′/p₀)<br/>c = c′<br/>O(1) · ln เดียว"]
     B -->|"ไม่"| SKIP["ข้าม<br/>c และ beta คงเดิม"]
 
-    C --> D["4. กลับ main rebalancing<br/>Fix_c = c<br/>R = beta + Fix_c × ln(P / P₀)<br/>R ที่ P′ เท่าเดิม<br/>A, E, P_acted คงเดิม"]
-    D --> DONE["จบ · รอบถัดไปคิดด้วย c′"]
+    C --> D["4. กลับ main rebalancing<br/>Fix_c = c<br/>R = beta + Fix_c × ln(P / P₀)<br/>beta บวกที่ R เท่านั้น ทุกแถว<br/>A = ΣΔA ไม่บวก beta · E = A − R<br/>R ที่ P′ เท่าเดิม · A, E, P_acted คงเดิม"]
+    D --> DONE["จบ · รอบถัดไปคิดด้วย c′<br/>แถวเก่าไม่ต้องแก้<br/>A, E เท่ากับการเปิดสายใหม่ตอนเปลี่ยนทุน"]
     SKIP --> DONE
 
     classDef calc fill:#e8f1ff,stroke:#3b6fd4,color:#111;

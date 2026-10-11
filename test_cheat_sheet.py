@@ -5,7 +5,7 @@
   carry a hash of the source, so a .mmd edited without re-rendering fails here and shows a
   warning in the app instead of a silently stale picture.
 * The rollover diagram's formula, ``beta += (c − c′) · ln(P′/p₀)`` with P′ = P_acted, is
-  checked against the repo's own gated ledger.
+  checked against the repo's own gated ledger — and so is where beta goes (on R, never on A).
 """
 from __future__ import annotations
 
@@ -91,6 +91,8 @@ def test_rollover_diagram_is_the_simple_one():
     assert "beta += (c − c′) · ln(P′/p₀)" in text           # the one formula
     assert "P′ = P_acted" in text                            # pivot = last acted price, not the live tick
     assert "R = beta + Fix_c × ln(P / P₀)" in text           # how main step 1 reads after a rollover
+    assert "beta บวกที่ R เท่านั้น" in text                  # beta lives on R ...
+    assert "A = ΣΔA ไม่บวก beta" in text                     # ... never on A (see test_beta_goes_on_r_and_never_on_a)
     assert text.count("ln(") == 2                            # one ln for the update, one for R
     assert len(nodes) <= 8                                   # small enough to read at a glance
     # straight line with one skip: no loop back
@@ -144,6 +146,8 @@ def test_cheat_sheet_tab_shows_both_diagrams():
     assert not app.exception
     assert [tab.label for tab in app.tabs][-1] == "⚡ Cheat Sheet"
     assert len(app.get("imgs")) == len(STEMS)                  # one picture per diagram
+    urls = [img.url for element in app.get("imgs") for img in element.proto.imgs]
+    assert len(urls) == len(STEMS) and all(url.endswith(".png") for url in urls)   # lossless: "auto" would send JPEG
     shown = [block.value for block in app.code]
     for stem in STEMS:
         assert _source(stem).rstrip("\n") in shown             # the .mmd text, ready to copy (st.code trims the last newline)
@@ -244,6 +248,29 @@ def test_beta_rollover_equals_opening_fresh_chains():
         assert a == pytest.approx(chained_a, abs=1e-8)
         assert e == pytest.approx(chained_e, abs=1e-8)
         assert all(abs(jump) < 1e-9 for jump in jumps)           # E does not move at the rollover
+
+
+def test_beta_goes_on_r_and_never_on_a():
+    # the Rebalancing Playground example (capital 100 → 200 at P_acted = 120), then three more rows
+    prices, actions, rollovers = [110.0, 120.0, 135.0, 150.0, 165.0], [1, 1, 1, 0, 1], {2: 200.0}
+    beta = (100.0 - 200.0) * math.log(120.0 / 100.0)                        # ≈ −18.23
+    ref_a, ref_e = _fresh_chains(prices, 100.0, 100.0, actions, rollovers)  # the repo's ledger, one chain per capital
+    a, e, _ = _beta_run(prices, 100.0, 100.0, actions, rollovers)
+
+    assert abs(beta) > 1                                                    # the example must tell the placements apart
+    assert (a, e) == (pytest.approx(ref_a, abs=1e-8), pytest.approx(ref_e, abs=1e-8))   # 88.5354 and 6.6125
+
+    # Try every place beta could be added in the table. Only one keeps A equal to the cash that was
+    # made (ref_a) and E equal to the fresh chains (ref_e).
+    r_without_beta = 200.0 * math.log(165.0 / 100.0)                        # c′ · ln(P_acted / p₀)
+    fits = []
+    for on_r in (False, True):
+        for on_a in (False, True):
+            shown_a = ref_a + (beta if on_a else 0.0)
+            shown_e = shown_a - ((beta if on_r else 0.0) + r_without_beta)
+            if shown_a == pytest.approx(ref_a, abs=1e-8) and shown_e == pytest.approx(ref_e, abs=1e-8):
+                fits.append((on_r, on_a))
+    assert fits == [(True, False)]
 
 
 def test_pivot_must_be_the_last_acted_price_not_the_live_tick():
