@@ -1,6 +1,6 @@
 """streamlit_app.py — Dashboard (read-only) อ่านจาก Firebase RTDB + Rebalancing 101
 
-3 แท็บ:
+4 แท็บ:
   📊 Live Dashboard   — อ่าน committed rows จาก Firebase (เหมือนเดิม), กรอง
                         committed==True, เลือก chain, ตาราง 17 คอลัมน์, integrity E1–E8
   🎓 Rebalancing 101  — playground เชิงสอน "gated demo (DNA gate + บัญชีแบบแช่แข็ง)"
@@ -9,6 +9,8 @@
   🌐 Web Apps         — คู่มือ/playground แบบโต้ตอบ (HTML ล้วนใน web_apps/ แสดงใน iframe)
                         คัดลอกจากแท็บ Web Apps ของ pages/Manual.py (leg-code):
                         Rebalancing 101 + Rebalancing Playground — ไม่เรียก Firebase
+  🔁 Rollover 101     — คู่มือยกยอดข้าม chain (web_apps/rollover101.html): ปิดเล่ม chain เก่า
+                        เปิดเล่มใหม่ แล้ว Rₙ/Aₙ/Eₙ ต่อกันอย่างไร พร้อม Lab ให้ลอง rollover เอง
 
 deploy บน streamlit.app: ใส่ service account JSON + DB URL ใน st.secrets (เฉพาะแท็บ Live)
 """
@@ -71,6 +73,7 @@ WEB_APPS = {
     "Rebalancing 101": "rebalancing101.html",
     "Rebalancing Playground": "rebalancing_playground.html",
 }
+ROLLOVER_101_APP = "rollover101.html"      # เขียนใหม่สำหรับแดชบอร์ดนี้ — แท็บ 🔁 Rollover 101
 
 
 def _has_secret(key: str) -> bool:
@@ -422,18 +425,30 @@ def render_web_apps() -> None:
     render_web_app(WEB_APPS[selected_web_app])
 
 
+def render_rollover_101() -> None:
+    st.subheader("🔁 Rollover 101 — ยกยอดข้าม chain โดยบัญชีไม่เพี้ยน")
+    st.caption(
+        "ตอน config เปลี่ยน (หรือ DNA หมดช่อง) บอทเริ่ม chain ใหม่ — คู่มือนี้อธิบายว่า Rₙ · Aₙ · Eₙ "
+        "ต่อกันข้ามรอยต่อได้อย่างไร พร้อม Lab ให้ลอง rollover เอง ทำงานใน iframe แยก "
+        "ไม่เรียก Firebase และไม่อ่าน secrets"
+    )
+    render_web_app(ROLLOVER_101_APP, height=1100)
+
+
 def main():
     st.set_page_config(page_title="LEGO Shannon Demon", layout="wide")
     st.title("🧬 LEGO Shannon Demon")
 
-    tab_live, tab_101, tab_web = st.tabs(
-        ["📊 Live Dashboard", "🎓 Rebalancing 101", "🌐 Web Apps"])
+    tab_live, tab_101, tab_web, tab_rollover = st.tabs(
+        ["📊 Live Dashboard", "🎓 Rebalancing 101", "🌐 Web Apps", "🔁 Rollover 101"])
     with tab_live:
         render_live_dashboard()
     with tab_101:
         render_rebalancing_101()
     with tab_web:
         render_web_apps()
+    with tab_rollover:
+        render_rollover_101()
 
 
 if __name__ == "__main__":
