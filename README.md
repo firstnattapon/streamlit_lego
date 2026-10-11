@@ -37,12 +37,13 @@ streamlit run streamlit_app.py
 ## แท็บ Cheat Sheet
 
 แผนภาพ Mermaid ของขั้นตอน **main rebalancing** และ **rollover**
-(`beta += (c − c′) · ln(P′/p₀)` โดย P′ = P_acted) เก็บเป็นไฟล์ `.mmd` ใน `cheat_sheet/`
+(`beta += (c − c′) · ln(P′/p₀)` โดย P′ = P_acted; beta บวกที่ R เท่านั้น ไม่บวกที่ Aₙ)
+เก็บเป็นไฟล์ `.mmd` ใน `cheat_sheet/`
 (Mermaid มาตรฐาน — วางใน code block ```` ```mermaid ```` ของ Markdown หรือ Mermaid Live Editor ได้)
 ส่วนแท็บแสดงภาพ PNG ที่ render ไว้ล่วงหน้า (เปิดทันที ไม่ต้องมี internet ไม่โหลดไลบรารีเพิ่ม)
 พร้อมซอร์สให้คัดลอกและปุ่มดาวน์โหลด
 
-ชื่อภาพมี hash ของ `.mmd` (เช่น `rollover.9b382e48.png`) ถ้าแก้ `.mmd` แล้วยังไม่ render ใหม่
+ชื่อภาพมี hash ของ `.mmd` (`rollover.<sha8>.png`) ถ้าแก้ `.mmd` แล้วยังไม่ render ใหม่
 แท็บจะเตือนและ `test_cheat_sheet.py` จะไม่ผ่าน — แก้แผนภาพแล้วสร้างภาพใหม่ (ต้องมี Node.js;
 ครั้งแรก puppeteer จะโหลด Chromium):
 
