@@ -146,6 +146,8 @@ def test_cheat_sheet_tab_shows_both_diagrams():
     assert not app.exception
     assert [tab.label for tab in app.tabs][-1] == "⚡ Cheat Sheet"
     assert len(app.get("imgs")) == len(STEMS)                  # one picture per diagram
+    urls = [img.url for element in app.get("imgs") for img in element.proto.imgs]
+    assert len(urls) == len(STEMS) and all(url.endswith(".png") for url in urls)   # lossless: "auto" would send JPEG
     shown = [block.value for block in app.code]
     for stem in STEMS:
         assert _source(stem).rstrip("\n") in shown             # the .mmd text, ready to copy (st.code trims the last newline)
