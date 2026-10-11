@@ -1,12 +1,12 @@
 flowchart TD
-    S["0. จำ 2 ค่า: c (= Fix_c) และ beta<br/>beta เริ่ม 0 · p₀ = P₀ ตรึงไว้"] --> A["1. ได้ทุนใหม่ c′<br/>จุดหมุน P′ = P_acted<br/>(ราคา ACT ล่าสุด)"]
+    S["0. จำ 2 ค่า: Fix_c และ beta<br/>beta เริ่มที่ 0<br/>P₀ ตรึงไว้ ไม่เปลี่ยน"] --> A["1. ได้ทุนใหม่ Fix_c_new<br/>จุดหมุนคือ P_acted<br/>(ราคา ACT ล่าสุด)"]
 
-    A --> B{"2. ใช้ได้ ?<br/>c′ ≠ c · c′ > 0 · P′ > 0"}
+    A --> B{"2. ใช้ได้ ?<br/>Fix_c_new ≠ Fix_c<br/>Fix_c_new > 0 และ P_acted > 0"}
 
-    B -->|"ใช่"| C["3. beta += (c − c′) · ln(P′/p₀)<br/>c = c′"]
+    B -->|"ใช่"| C["3. beta += (Fix_c − Fix_c_new) * ln(P_acted / P₀)<br/>Fix_c = Fix_c_new"]
     B -->|"ไม่"| SKIP["ข้าม"]
 
-    C --> D["4. R = beta + Fix_c × ln(P / P₀)<br/>beta บวกที่ R เท่านั้น<br/>A ไม่บวก beta"]
+    C --> D["4. R = beta + Fix_c * ln(P / P₀)<br/>beta บวกที่ R เท่านั้น<br/>A ไม่บวก beta"]
 
     classDef calc fill:#e8f1ff,stroke:#3b6fd4,color:#111;
     classDef act fill:#fff4d6,stroke:#d49a1a,color:#111;
