@@ -102,7 +102,7 @@ def test_tabs_are_listed_in_order():
 
     assert not app.exception
     assert [tab.label for tab in app.tabs] == [
-        "📊 Live Dashboard", "🎓 Rebalancing 101", "🌐 Web Apps"]
+        "📊 Live Dashboard", "🎓 Rebalancing 101", "🌐 Web Apps", "⚡ Cheat Sheet"]
 
 
 def test_web_apps_tab_renders_every_choice_in_an_iframe():
