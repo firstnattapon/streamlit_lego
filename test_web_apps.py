@@ -45,15 +45,14 @@ def _page(filename: str) -> str:
 def test_catalog_points_at_bundled_files():
     assert streamlit_app.WEB_APPS_DIR == WEB_APPS_DIR.resolve()
     assert list(streamlit_app.WEB_APPS) == ["Rebalancing 101", "Rebalancing Playground"]
-    assert streamlit_app.ROLLOVER_101_APP == "rollover101.html"
-    for filename in (*streamlit_app.WEB_APPS.values(), streamlit_app.ROLLOVER_101_APP):
+    for filename in streamlit_app.WEB_APPS.values():
         assert (WEB_APPS_DIR / filename).is_file(), filename
 
 
 def test_there_are_bundled_pages_to_check():
-    # An empty glob would make the parametrized checks below pass vacuously.
-    shipped = {*streamlit_app.WEB_APPS.values(), streamlit_app.ROLLOVER_101_APP}
-    assert {page.name for page in WEB_APP_PAGES} == shipped
+    # An empty glob would make the parametrized checks below pass vacuously, and a
+    # page that is not in the catalog would never be shown.
+    assert {page.name for page in WEB_APP_PAGES} == set(streamlit_app.WEB_APPS.values())
 
 
 @pytest.mark.parametrize("page", WEB_APP_PAGES, ids=lambda page: page.name)
@@ -103,7 +102,7 @@ def test_tabs_are_listed_in_order():
 
     assert not app.exception
     assert [tab.label for tab in app.tabs] == [
-        "📊 Live Dashboard", "🎓 Rebalancing 101", "🌐 Web Apps", "🔁 Rollover 101"]
+        "📊 Live Dashboard", "🎓 Rebalancing 101", "🌐 Web Apps"]
 
 
 def test_web_apps_tab_renders_every_choice_in_an_iframe():
@@ -117,26 +116,11 @@ def test_web_apps_tab_renders_every_choice_in_an_iframe():
         app.radio(key="web_app_choice").set_value(label).run(timeout=20)
 
         assert not app.exception
-        # one iframe for the radio's choice, one for the Rollover 101 tab;
-        # AppTest reports no Streamlit theme, so the pages must arrive untouched.
-        assert [frame.proto.srcdoc for frame in app.get("iframe")] == [
-            _page(filename), _page(streamlit_app.ROLLOVER_101_APP)]
+        # AppTest reports no Streamlit theme, so the page must arrive untouched.
+        assert [frame.proto.srcdoc for frame in app.get("iframe")] == [_page(filename)]
 
 
-def test_rollover_tab_shows_the_rollover_guide():
-    app = _run_app()
-
-    assert not app.exception
-    assert any("Rollover 101" in item.value for item in app.subheader)
-    guide = _page(streamlit_app.ROLLOVER_101_APP)
-    assert "<title>Rollover 101" in guide
-    assert guide in [frame.proto.srcdoc for frame in app.get("iframe")]
-    # the guide is plain HTML: it must not add widgets that the smoke tests count
-    assert len(app.number_input) == 6 and len(app.text_input) == 1
-
-
-@pytest.mark.parametrize("filename", ["rebalancing101.html", "rebalancing_playground.html",
-                                      "rollover101.html"])
+@pytest.mark.parametrize("filename", sorted(streamlit_app.WEB_APPS.values()))
 def test_web_app_follows_the_streamlit_theme(monkeypatch, filename):
     monkeypatch.setattr(streamlit_app, "_streamlit_theme", lambda: "dark")
 
