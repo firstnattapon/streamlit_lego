@@ -3,7 +3,7 @@ flowchart TD
 
     A --> B{"2. ปรับได้ ?<br/>c′ ≠ c · c′ > 0 · P′ > 0"}
 
-    B -->|"ใช่"| C["3. ROLLOVER ครั้งเดียว<br/>beta += (c − c′) · ln(P′/p₀)<br/>c = c′<br/>O(1) · ln เดียว"]
+    B -->|"ใช่"| C["3. ROLLOVER ครั้งเดียว<br/>beta += (c − c′) · ln(P′/p₀)<br/>c = c′<br/>ไม่ต้องไล่ประวัติ · ln เดียว"]
     B -->|"ไม่"| SKIP["ข้าม<br/>c และ beta คงเดิม"]
 
     C --> D["4. กลับ main rebalancing<br/>Fix_c = c<br/>R = beta + Fix_c × ln(P / P₀)<br/>beta บวกที่ R เท่านั้น ทุกแถว<br/>A = ΣΔA ไม่บวก beta · E = A − R<br/>R ที่ P′ เท่าเดิม · A, E, P_acted คงเดิม"]
