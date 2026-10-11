@@ -4,7 +4,7 @@
 * The tab shows PNGs rendered ahead of time by ``tools/render_cheat_sheet.py``. Their names
   carry a hash of the source, so a .mmd edited without re-rendering fails here and shows a
   warning in the app instead of a silently stale picture.
-* The rollover diagram's formula, ``beta += (c − c′) · ln(P′/p₀)`` with P′ = P_acted, is
+* The rollover diagram's formula, ``beta += (Fix_c − Fix_c_new) * ln(P_acted / P₀)``, is
   checked against the repo's own gated ledger — and so is where beta goes (on R, never on A).
 """
 from __future__ import annotations
@@ -88,9 +88,11 @@ def test_rollover_diagram_is_the_simple_one():
     text = _source("rollover")
     nodes, edges = _graph(text)
 
-    assert "beta += (c − c′) · ln(P′/p₀)" in text           # the one formula
-    assert "P′ = P_acted" in text                            # pivot = last acted price, not the live tick
-    assert "R = beta + Fix_c × ln(P / P₀)" in text           # how main step 1 reads after a rollover
+    assert "beta += (Fix_c − Fix_c_new) * ln(P_acted / P₀)" in text   # the one formula
+    assert "จุดหมุนคือ P_acted" in text                      # pivot = last acted price, not the live tick
+    assert "R = beta + Fix_c * ln(P / P₀)" in text           # how main step 1 reads after a rollover
+    for confusing in ("c′", "P′", "p₀", "·"):                # one name per thing (main's names), * for multiply
+        assert confusing not in text, confusing
     assert "beta บวกที่ R เท่านั้น" in text                  # beta lives on R ...
     assert "A ไม่บวก beta" in text                           # ... never on A (see test_beta_goes_on_r_and_never_on_a)
     assert text.count("ln(") == 2                            # one ln for the update, one for R
@@ -201,7 +203,7 @@ def _beta_run(prices, p0, c0, actions, rollovers, live_pivot=False):
             acted = price
         if i in rollovers:
             before = a - (beta + c * math.log(acted / p0))
-            pivot = price if live_pivot else acted               # P′
+            pivot = price if live_pivot else acted               # P_acted (the live tick is the wrong choice)
             beta += (c - rollovers[i]) * math.log(pivot / p0)    # the formula
             c = rollovers[i]
             e_jumps.append(a - (beta + c * math.log(acted / p0)) - before)
@@ -262,7 +264,7 @@ def test_beta_goes_on_r_and_never_on_a():
 
     # Try every place beta could be added in the table. Only one keeps A equal to the cash that was
     # made (ref_a) and E equal to the fresh chains (ref_e).
-    r_without_beta = 200.0 * math.log(165.0 / 100.0)                        # c′ · ln(P_acted / p₀)
+    r_without_beta = 200.0 * math.log(165.0 / 100.0)                        # Fix_c_new * ln(P_acted / P₀)
     fits = []
     for on_r in (False, True):
         for on_a in (False, True):

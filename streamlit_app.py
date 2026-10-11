@@ -10,7 +10,7 @@
                         คัดลอกจากแท็บ Web Apps ของ pages/Manual.py (leg-code):
                         Rebalancing 101 + Rebalancing Playground — ไม่เรียก Firebase
   ⚡ Cheat Sheet       — แผนภาพ Mermaid (.mmd ใน cheat_sheet/): main rebalancing และ rollover
-                        (beta += (c − c′)·ln(P′/p₀)) แสดงเป็นภาพ PNG ที่ render ไว้ล่วงหน้า
+                        (beta += (Fix_c − Fix_c_new) * ln(P_acted / P₀)) แสดงเป็นภาพ PNG ที่ render ไว้ล่วงหน้า
 
 deploy บน streamlit.app: ใส่ service account JSON + DB URL ใน st.secrets (เฉพาะแท็บ Live)
 """
