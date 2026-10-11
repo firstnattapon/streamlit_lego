@@ -8,15 +8,16 @@ from streamlit.testing.v1 import AppTest
 from test_execution_confirmed_contract import _execution_fixture
 
 
-def test_app_starts_without_firebase_secrets_and_keeps_two_tab_ui():
+def test_app_starts_without_firebase_secrets_and_keeps_tab_ui():
     app = AppTest.from_file(str(Path(__file__).with_name("streamlit_app.py")))
     app.run(timeout=20)
 
     assert not app.exception
     assert len(app.title) == 1
-    assert len(app.tabs) == 2
+    assert len(app.tabs) == 3
     # The educational tab remains usable while the live tab explains that
-    # Firebase secrets are absent. These counts protect its existing inputs.
+    # Firebase secrets are absent. These counts protect its existing inputs;
+    # the Web Apps tab only adds a radio + iframe, never a number/text input.
     assert len(app.info) >= 1
     assert len(app.number_input) == 6
     assert len(app.text_input) == 1
@@ -54,7 +55,7 @@ def test_live_execution_dashboard_renders_with_mocked_read_only_firebase(
     app.run(timeout=20)
 
     assert not app.exception
-    assert len(app.tabs) == 2
+    assert len(app.tabs) == 3
     metric_labels = {item.label for item in app.metric}
     assert {"สถานะตัดสินใจล่าสุด", "DNA step", "Pₙ (USD)",
             "Eₙ สะสม (USD)"}.issubset(metric_labels)
