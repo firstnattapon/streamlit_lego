@@ -1,11 +1,16 @@
 """streamlit_app.py — Dashboard (read-only) อ่านจาก Firebase RTDB + Rebalancing 101
 
-2 แท็บ:
+4 แท็บ:
   📊 Live Dashboard   — อ่าน committed rows จาก Firebase (เหมือนเดิม), กรอง
                         committed==True, เลือก chain, ตาราง 17 คอลัมน์, integrity E1–E8
   🎓 Rebalancing 101  — playground เชิงสอน "gated demo (DNA gate + บัญชีแบบแช่แข็ง)"
                         ไม่ต้องมี Firebase: สุ่มราคา -> เดิน ledger gated_theoretical_v2
                         เห็นว่ารอบ "จำนวนสั่ง = 0" (pass/แช่แข็ง) ถูกบันทึกอย่างไร
+  🌐 Web Apps         — คู่มือ/playground แบบโต้ตอบ (HTML ล้วนใน web_apps/ แสดงใน iframe)
+                        คัดลอกจากแท็บ Web Apps ของ pages/Manual.py (leg-code):
+                        Rebalancing 101 + Rebalancing Playground — ไม่เรียก Firebase
+  🔁 Rollover 101     — คู่มือยกยอดข้าม chain (web_apps/rollover101.html): ปิดเล่ม chain เก่า
+                        เปิดเล่มใหม่ แล้ว Rₙ/Aₙ/Eₙ ต่อกันอย่างไร พร้อม Lab ให้ลอง rollover เอง
 
 deploy บน streamlit.app: ใส่ service account JSON + DB URL ใน st.secrets (เฉพาะแท็บ Live)
 """
@@ -13,6 +18,8 @@ from __future__ import annotations
 
 import importlib
 import json
+import re
+from pathlib import Path
 
 import firebase_admin
 import pandas as pd
@@ -58,6 +65,15 @@ FROZEN_TERMINAL_SEMANTICS = getattr(
 ROWS_PATH = "webull_lego_rows"
 STATE_PATH = "webull_lego_state"
 AUDIT_PATH = "webull_lego_order_audit"
+
+# Web Apps: คู่มือ/playground แบบ HTML ล้วน (self-contained) แสดงใน iframe ผ่าน
+# components.html — ชุดนี้คัดลอกมาจากแท็บ "🌐 Web Apps" ของ pages/Manual.py (leg-code)
+WEB_APPS_DIR = Path(__file__).resolve().parent / "web_apps"
+WEB_APPS = {
+    "Rebalancing 101": "rebalancing101.html",
+    "Rebalancing Playground": "rebalancing_playground.html",
+}
+ROLLOVER_101_APP = "rollover101.html"      # เขียนใหม่สำหรับแดชบอร์ดนี้ — แท็บ 🔁 Rollover 101
 
 
 def _has_secret(key: str) -> bool:
@@ -352,15 +368,87 @@ def render_rebalancing_101() -> None:
         st.error(f"คำนวณไม่ได้: {exc}")
 
 
+_HTML_OPEN_TAG = re.compile(r"<html\b[^>]*>", re.IGNORECASE)
+_DATA_THEME_ATTR = re.compile(r"""\sdata-theme\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)""",
+                              re.IGNORECASE)
+
+
+def apply_iframe_theme(app_html: str, theme: str | None) -> str:
+    """บังคับสีของ web app ให้ตรงกับธีม Streamlit — หน้า HTML รองรับ ``:root[data-theme]``
+
+    ``theme`` ไม่ใช่ "light"/"dark" (ไม่รู้ธีม) -> คืนเดิม ให้ตาม prefers-color-scheme
+    ของเบราว์เซอร์. ไฟล์ที่เป็น fragment (ไม่มี ``<html>``) จะถูกครอบด้วย
+    ``<html data-theme=...>`` อย่างเดียว ไม่เติม doctype: ต้นฉบับไม่มี และ iframe
+    srcdoc ไม่เข้าโหมด quirks เพราะไม่มี doctype อยู่แล้ว เนื้อหาจึงเหมือนเดิมทุกไบต์
+    """
+    if theme not in ("light", "dark"):
+        return app_html
+    attr = f' data-theme="{theme}"'
+    match = _HTML_OPEN_TAG.search(app_html)
+    if match is None:
+        return f"<html{attr}>{app_html}"
+    tag = _DATA_THEME_ATTR.sub("", match.group(0))
+    return app_html[:match.start()] + tag[:-1] + attr + ">" + app_html[match.end():]
+
+
+def _streamlit_theme() -> str | None:
+    try:
+        return getattr(st.context.theme, "type", None)
+    except Exception:        # ธีมเป็นส่วนเสริม — ห้ามทำให้หน้าล่ม
+        return None
+
+
+def render_web_app(filename: str, *, height: int = 900) -> None:
+    """Render a bundled, self-contained HTML app in an isolated iframe."""
+    try:
+        app_html = (WEB_APPS_DIR / filename).read_text(encoding="utf-8")
+    except OSError as exc:
+        st.error(f"{exc.__class__.__name__}: {exc}")
+        return
+    components.html(apply_iframe_theme(app_html, _streamlit_theme()),
+                    height=height, scrolling=True)
+
+
+def render_web_apps() -> None:
+    st.subheader("Interactive Rebalancing Web Apps")
+    st.caption(
+        "เปิดคู่มือและ playground แบบโต้ตอบได้จากแดชบอร์ดนี้ "
+        "โดยทำงานอยู่ใน iframe แยก ไม่เรียก Firebase และไม่อ่าน secrets"
+    )
+    selected_web_app = st.radio(
+        "เลือก Web App",
+        options=tuple(WEB_APPS),
+        horizontal=True,
+        label_visibility="collapsed",
+        key="web_app_choice",
+    )
+    render_web_app(WEB_APPS[selected_web_app])
+
+
+def render_rollover_101() -> None:
+    st.subheader("🔁 Rollover 101 — ยกยอดข้าม chain โดยบัญชีไม่เพี้ยน")
+    st.caption(
+        "ตอน config เปลี่ยน (หรือ DNA หมดช่อง) บอทเริ่ม chain ใหม่ — คู่มือนี้อธิบายว่า Rₙ · Aₙ · Eₙ "
+        "ต่อกันข้ามรอยต่อได้อย่างไร พร้อม Lab ให้ลอง rollover เอง ทำงานใน iframe แยก "
+        "ไม่เรียก Firebase และไม่อ่าน secrets"
+    )
+    render_web_app(ROLLOVER_101_APP, height=1100)
+
+
 def main():
     st.set_page_config(page_title="LEGO Shannon Demon", layout="wide")
     st.title("🧬 LEGO Shannon Demon")
 
-    tab_live, tab_101 = st.tabs(["📊 Live Dashboard", "🎓 Rebalancing 101"])
+    tab_live, tab_101, tab_web, tab_rollover = st.tabs(
+        ["📊 Live Dashboard", "🎓 Rebalancing 101", "🌐 Web Apps", "🔁 Rollover 101"])
     with tab_live:
         render_live_dashboard()
     with tab_101:
         render_rebalancing_101()
+    with tab_web:
+        render_web_apps()
+    with tab_rollover:
+        render_rollover_101()
 
 
 if __name__ == "__main__":
