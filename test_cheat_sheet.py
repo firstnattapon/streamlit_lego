@@ -91,9 +91,9 @@ def test_rollover_diagram_is_the_simple_one():
     assert "beta += (c − c′) · ln(P′/p₀)" in text           # the one formula
     assert "P′ = P_acted" in text                            # pivot = last acted price, not the live tick
     assert "R = beta + Fix_c × ln(P / P₀)" in text           # how main step 1 reads after a rollover
-    assert "beta บวกที่ R เท่านั้น" in text                   # beta lives on R ...
-    assert "A = ΣΔA ไม่บวก beta" in text                      # ... never on A (see test_beta_goes_on_r_and_never_on_a)
-    assert text.count("ln(") == 2                           # one ln for the update, one for R
+    assert "beta บวกที่ R เท่านั้น" in text                  # beta lives on R ...
+    assert "A = ΣΔA ไม่บวก beta" in text                     # ... never on A (see test_beta_goes_on_r_and_never_on_a)
+    assert text.count("ln(") == 2                            # one ln for the update, one for R
     assert len(nodes) <= 8                                   # small enough to read at a glance
     # straight line with one skip: no loop back
     graph = {}
