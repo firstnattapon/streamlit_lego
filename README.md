@@ -5,16 +5,18 @@
 
 แดชบอร์ดแบบ read-only สำหรับอ่าน committed rows จาก Firebase Realtime Database
 และหน้าเรียนรู้ Rebalancing 101 ที่จำลอง DNA gate ได้โดยไม่ต้องเชื่อม Firebase
-พร้อมคู่มือ HTML แบบโต้ตอบ (แท็บ Web Apps)
+พร้อมคู่มือ HTML แบบโต้ตอบ (แท็บ Web Apps) และ cheat sheet แผนภาพ Mermaid (แท็บ Cheat Sheet)
 
 > สถานะ candidate นี้ยังไม่พร้อมใช้ Production โปรดอ่าน
 > [RELEASE_STATUS_TH.md](RELEASE_STATUS_TH.md) ก่อนใช้งาน
 
 ## ไฟล์หลัก
 
-- `streamlit_app.py` — หน้า Live Dashboard, Rebalancing 101 และ Web Apps
+- `streamlit_app.py` — หน้า Live Dashboard, Rebalancing 101, Web Apps และ Cheat Sheet
 - `web_apps/` — คู่มือ/playground แบบ HTML ล้วน แสดงใน iframe ผ่าน `components.html`
   (รายละเอียดด้านล่าง)
+- `cheat_sheet/` — แผนภาพ Mermaid `.mmd` + ภาพ PNG ที่ render ไว้ · `tools/render_cheat_sheet.py`
+  สร้างภาพใหม่ (รายละเอียดด้านล่าง)
 - `lego_dash_core.py` — การจัดตาราง ตรวจ integrity และคำนวณ ledger สำหรับการแสดงผล
 - `lego_hover_table.py` — ตาราง HTML ที่ชี้เมาส์ดูที่มาของตัวเลขได้ (ฝังด้วย `components.html`)
 - `dna_engine.py` — ตัวถอด DNA แบบเดียวกับ backend
@@ -30,7 +32,23 @@ python -m pip install -r requirements.txt
 streamlit run streamlit_app.py
 ```
 
-แท็บ Rebalancing 101 และ Web Apps ใช้งานได้ทันทีโดยไม่ต้องมี credential
+แท็บ Rebalancing 101, Web Apps และ Cheat Sheet ใช้งานได้ทันทีโดยไม่ต้องมี credential
+
+## แท็บ Cheat Sheet
+
+แผนภาพ Mermaid ของขั้นตอน **main rebalancing** และ **rollover**
+(`beta += (c − c′) · ln(P′/p₀)` โดย P′ = P_acted) เก็บเป็นไฟล์ `.mmd` ใน `cheat_sheet/`
+(Mermaid มาตรฐาน — วางใน code block ```` ```mermaid ```` ของ Markdown หรือ Mermaid Live Editor ได้)
+ส่วนแท็บแสดงภาพ PNG ที่ render ไว้ล่วงหน้า (เปิดทันที ไม่ต้องมี internet ไม่โหลดไลบรารีเพิ่ม)
+พร้อมซอร์สให้คัดลอกและปุ่มดาวน์โหลด
+
+ชื่อภาพมี hash ของ `.mmd` (เช่น `rollover.9b382e48.png`) ถ้าแก้ `.mmd` แล้วยังไม่ render ใหม่
+แท็บจะเตือนและ `test_cheat_sheet.py` จะไม่ผ่าน — แก้แผนภาพแล้วสร้างภาพใหม่ (ต้องมี Node.js;
+ครั้งแรก puppeteer จะโหลด Chromium):
+
+```powershell
+python tools/render_cheat_sheet.py
+```
 
 ## แท็บ Web Apps
 

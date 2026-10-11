@@ -1,6 +1,6 @@
 """streamlit_app.py — Dashboard (read-only) อ่านจาก Firebase RTDB + Rebalancing 101
 
-3 แท็บ:
+4 แท็บ:
   📊 Live Dashboard   — อ่าน committed rows จาก Firebase (เหมือนเดิม), กรอง
                         committed==True, เลือก chain, ตาราง 17 คอลัมน์, integrity E1–E8
   🎓 Rebalancing 101  — playground เชิงสอน "gated demo (DNA gate + บัญชีแบบแช่แข็ง)"
@@ -9,11 +9,14 @@
   🌐 Web Apps         — คู่มือ/playground แบบโต้ตอบ (HTML ล้วนใน web_apps/ แสดงใน iframe)
                         คัดลอกจากแท็บ Web Apps ของ pages/Manual.py (leg-code):
                         Rebalancing 101 + Rebalancing Playground — ไม่เรียก Firebase
+  ⚡ Cheat Sheet       — แผนภาพ Mermaid (.mmd ใน cheat_sheet/): main rebalancing และ rollover
+                        (beta += (c − c′)·ln(P′/p₀)) แสดงเป็นภาพ PNG ที่ render ไว้ล่วงหน้า
 
 deploy บน streamlit.app: ใส่ service account JSON + DB URL ใน st.secrets (เฉพาะแท็บ Live)
 """
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 import re
@@ -70,6 +73,15 @@ WEB_APPS_DIR = Path(__file__).resolve().parent / "web_apps"
 WEB_APPS = {
     "Rebalancing 101": "rebalancing101.html",
     "Rebalancing Playground": "rebalancing_playground.html",
+}
+
+# Cheat Sheet: แผนภาพ Mermaid (.mmd) — แท็บแสดงภาพ PNG ที่ render ไว้ล่วงหน้าด้วย
+# tools/render_cheat_sheet.py ชื่อภาพมี hash ของ .mmd (<ชื่อ>.<sha8>.png) จึงรู้ทันทีเมื่อ
+# แก้ .mmd แล้วยังไม่ render ใหม่ (แทนที่จะโชว์ภาพเก่าเงียบ ๆ)
+CHEAT_SHEET_DIR = Path(__file__).resolve().parent / "cheat_sheet"
+CHEAT_SHEETS = {               # หัวข้อ -> ชื่อไฟล์ .mmd (ไม่รวมนามสกุล)
+    "1. Main rebalancing": "main_rebalancing",
+    "2. Rollover": "rollover",
 }
 
 
@@ -422,18 +434,57 @@ def render_web_apps() -> None:
     render_web_app(WEB_APPS[selected_web_app])
 
 
+def mmd_digest(source: str) -> str:
+    """8 hex ตัวแรกของ SHA-256 ของข้อความ .mmd — อ่านแบบ text จึงไม่ขึ้นกับ CRLF/LF
+    (tools/render_cheat_sheet.py ใช้กติกาเดียวกัน)"""
+    return hashlib.sha256(source.encode("utf-8")).hexdigest()[:8]
+
+
+def render_cheat_sheet(stem: str) -> None:
+    """แสดงแผนภาพ ``cheat_sheet/<stem>.mmd`` (ภาพ PNG ที่ render ไว้ + ซอร์ส + ปุ่มดาวน์โหลด)"""
+    try:
+        source = (CHEAT_SHEET_DIR / f"{stem}.mmd").read_text(encoding="utf-8")
+    except OSError as exc:
+        st.error(f"{exc.__class__.__name__}: {exc}")
+        return
+    image = CHEAT_SHEET_DIR / f"{stem}.{mmd_digest(source)}.png"
+    if image.is_file():
+        st.image(str(image))       # ภาพ render ที่ scale 3 — เบราว์เซอร์ย่อให้พอดีคอลัมน์ จึงคมบนจอ retina
+    else:
+        st.warning("ภาพของแผนภาพนี้ยังไม่ตรงกับไฟล์ .mmd ล่าสุด — "
+                   "รัน `python tools/render_cheat_sheet.py` แล้ว commit ภาพใหม่")
+    with st.expander("ซอร์ส .mmd — คัดลอกไปวางใน Mermaid ได้"):
+        st.code(source, language=None)
+    st.download_button("ดาวน์โหลด .mmd", data=source, file_name=f"{stem}.mmd",
+                       mime="text/plain", key=f"cheat_sheet_{stem}")
+
+
+def render_cheat_sheets() -> None:
+    st.subheader("⚡ Cheat Sheet — รู้ทันขั้นตอนในหน้าเดียว")
+    st.caption(
+        "แผนภาพ Mermaid (.mmd) ของ main rebalancing และ rollover — แสดงเป็นภาพที่ render ไว้ล่วงหน้า "
+        "จึงเปิดได้ทันทีและใช้ออฟไลน์ได้ · ซอร์ส .mmd เป็น Mermaid มาตรฐาน คัดลอกไปใช้ต่อได้"
+    )
+    for column, (title, stem) in zip(st.columns(len(CHEAT_SHEETS)), CHEAT_SHEETS.items()):
+        with column:
+            st.markdown(f"#### {title}")
+            render_cheat_sheet(stem)
+
+
 def main():
     st.set_page_config(page_title="LEGO Shannon Demon", layout="wide")
     st.title("🧬 LEGO Shannon Demon")
 
-    tab_live, tab_101, tab_web = st.tabs(
-        ["📊 Live Dashboard", "🎓 Rebalancing 101", "🌐 Web Apps"])
+    tab_live, tab_101, tab_web, tab_cheat = st.tabs(
+        ["📊 Live Dashboard", "🎓 Rebalancing 101", "🌐 Web Apps", "⚡ Cheat Sheet"])
     with tab_live:
         render_live_dashboard()
     with tab_101:
         render_rebalancing_101()
     with tab_web:
         render_web_apps()
+    with tab_cheat:
+        render_cheat_sheets()
 
 
 if __name__ == "__main__":
