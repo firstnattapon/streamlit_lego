@@ -15,8 +15,8 @@
 - `streamlit_app.py` — หน้า Live Dashboard, Rebalancing 101, Web Apps และ Cheat Sheet
 - `web_apps/` — คู่มือ/playground แบบ HTML ล้วน แสดงใน iframe ผ่าน `components.html`
   (รายละเอียดด้านล่าง)
-- `cheat_sheet/` — แผนภาพ Mermaid `.mmd` + ภาพ PNG ที่ render ไว้ · `tools/render_cheat_sheet.py`
-  สร้างภาพใหม่ (รายละเอียดด้านล่าง)
+- `cheat_sheet/` — แผนภาพ Mermaid `.mmd` + ภาพ PNG ที่ render ไว้ + `summary.md` (สรุป 10 ข้อ + ประโยคเดียว) ·
+  `tools/render_cheat_sheet.py` สร้างภาพใหม่ (รายละเอียดด้านล่าง)
 - `lego_dash_core.py` — การจัดตาราง ตรวจ integrity และคำนวณ ledger สำหรับการแสดงผล
 - `lego_hover_table.py` — ตาราง HTML ที่ชี้เมาส์ดูที่มาของตัวเลขได้ (ฝังด้วย `components.html`)
 - `dna_engine.py` — ตัวถอด DNA แบบเดียวกับ backend
@@ -35,6 +35,9 @@ streamlit run streamlit_app.py
 แท็บ Rebalancing 101, Web Apps และ Cheat Sheet ใช้งานได้ทันทีโดยไม่ต้องมี credential
 
 ## แท็บ Cheat Sheet
+
+มี 2 แท็บย่อย: **📝 Summary** (เปิดเป็นแท็บแรก) แสดงสรุป 10 ข้อ + ประโยคเดียวจาก `cheat_sheet/summary.md`
+(แก้ข้อความที่ไฟล์นี้ได้โดยไม่ต้องแตะโค้ด) และ **🔀 Diagrams** แสดงแผนภาพตามด้านล่าง
 
 แผนภาพ Mermaid ของขั้นตอน **main rebalancing**, **rollover**
 (`beta += (Fix_c − Fix_c_new) * ln(P_acted / P₀)`; beta บวกที่ R เท่านั้น ไม่บวกที่ Aₙ)

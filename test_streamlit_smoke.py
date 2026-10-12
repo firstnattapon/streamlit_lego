@@ -14,7 +14,7 @@ def test_app_starts_without_firebase_secrets_and_keeps_tab_ui():
 
     assert not app.exception
     assert len(app.title) == 1
-    assert len(app.tabs) == 4
+    assert len(app.tabs) == 6       # 4 tabs + Summary and Diagrams inside the Cheat Sheet tab
     # The educational tab remains usable while the live tab explains that
     # Firebase secrets are absent. These counts protect its existing inputs;
     # the Web Apps and Cheat Sheet tabs add a radio, images and buttons, never a
@@ -56,7 +56,7 @@ def test_live_execution_dashboard_renders_with_mocked_read_only_firebase(
     app.run(timeout=20)
 
     assert not app.exception
-    assert len(app.tabs) == 4
+    assert len(app.tabs) == 6       # 4 tabs + Summary and Diagrams inside the Cheat Sheet tab
     metric_labels = {item.label for item in app.metric}
     assert {"สถานะตัดสินใจล่าสุด", "DNA step", "Pₙ (USD)",
             "Eₙ สะสม (USD)"}.issubset(metric_labels)

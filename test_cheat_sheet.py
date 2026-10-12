@@ -179,7 +179,8 @@ def test_cheat_sheet_tab_shows_all_diagrams():
     app.run(timeout=30)
 
     assert not app.exception
-    assert [tab.label for tab in app.tabs][-1] == "⚡ Cheat Sheet"
+    # Cheat Sheet is still the last tab; its own two tabs follow it (Summary is in test_cheat_summary.py)
+    assert [tab.label for tab in app.tabs][-3:] == ["⚡ Cheat Sheet", "📝 Summary", "🔀 Diagrams"]
     assert len(app.get("imgs")) == len(STEMS)                  # one picture per diagram
     urls = [img.url for element in app.get("imgs") for img in element.proto.imgs]
     assert len(urls) == len(STEMS) and all(url.endswith(".png") for url in urls)   # lossless: "auto" would send JPEG

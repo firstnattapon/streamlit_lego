@@ -9,9 +9,10 @@
   🌐 Web Apps         — คู่มือ/playground แบบโต้ตอบ (HTML ล้วนใน web_apps/ แสดงใน iframe)
                         คัดลอกจากแท็บ Web Apps ของ pages/Manual.py (leg-code):
                         Rebalancing 101 + Rebalancing Playground — ไม่เรียก Firebase
-  ⚡ Cheat Sheet       — แผนภาพ Mermaid (.mmd ใน cheat_sheet/): main rebalancing, rollover
-                        (beta += (Fix_c − Fix_c_new) * ln(P_acted / P₀)) และ Option Scale (จ่าย K ก่อน
-                        → เก็บ E → ขยาย Fix_c ด้วยกำไรที่ล็อกแล้ว) แสดงเป็นภาพ PNG ที่ render ไว้ล่วงหน้า
+  ⚡ Cheat Sheet       — แท็บย่อย 📝 Summary: สรุป 10 ข้อ + ประโยคเดียว (cheat_sheet/summary.md)
+                        และ 🔀 Diagrams: แผนภาพ Mermaid (.mmd ใน cheat_sheet/): main rebalancing,
+                        rollover (beta += (Fix_c − Fix_c_new) * ln(P_acted / P₀)) และ Option Scale
+                        (จ่าย K ก่อน → เก็บ E → ขยาย Fix_c ด้วยกำไรที่ล็อกแล้ว) แสดงเป็นภาพ PNG ที่ render ไว้ล่วงหน้า
 
 deploy บน streamlit.app: ใส่ service account JSON + DB URL ใน st.secrets (เฉพาะแท็บ Live)
 """
@@ -85,6 +86,8 @@ CHEAT_SHEETS = {               # หัวข้อ -> ชื่อไฟล์ 
     "2. Rollover": "rollover",
     "3. Option Scale": "option_scale",
 }
+# แท็บย่อย Summary แสดงไฟล์ Markdown นี้ (สรุป 10 ข้อ + ประโยคเดียว) — แก้ข้อความที่ไฟล์ได้เลย
+CHEAT_SUMMARY = "summary.md"
 
 
 def _has_secret(key: str) -> bool:
@@ -462,16 +465,30 @@ def render_cheat_sheet(stem: str) -> None:
                        mime="text/plain", key=f"cheat_sheet_{stem}")
 
 
+def render_cheat_summary() -> None:
+    """แสดง ``cheat_sheet/summary.md`` (สรุป 10 ข้อ + ประโยคเดียว) — ข้อความอยู่ในไฟล์ ไม่ได้อยู่ในโค้ด"""
+    try:
+        text = (CHEAT_SHEET_DIR / CHEAT_SUMMARY).read_text(encoding="utf-8")
+    except OSError as exc:
+        st.error(f"{exc.__class__.__name__}: {exc}")
+        return
+    st.markdown(text)
+
+
 def render_cheat_sheets() -> None:
     st.subheader("⚡ Cheat Sheet — รู้ทันขั้นตอนในหน้าเดียว")
-    st.caption(
-        "แผนภาพ Mermaid (.mmd) ของ main rebalancing, rollover และ Option Scale — แสดงเป็นภาพที่ render ไว้ล่วงหน้า "
-        "จึงเปิดได้ทันทีและใช้ออฟไลน์ได้ · ซอร์ส .mmd เป็น Mermaid มาตรฐาน คัดลอกไปใช้ต่อได้"
-    )
-    for column, (title, stem) in zip(st.columns(len(CHEAT_SHEETS)), CHEAT_SHEETS.items()):
-        with column:
-            st.markdown(f"#### {title}")
-            render_cheat_sheet(stem)
+    tab_summary, tab_diagrams = st.tabs(["📝 Summary", "🔀 Diagrams"])
+    with tab_summary:
+        render_cheat_summary()
+    with tab_diagrams:
+        st.caption(
+            "แผนภาพ Mermaid (.mmd) ของ main rebalancing, rollover และ Option Scale — แสดงเป็นภาพที่ render ไว้ล่วงหน้า "
+            "จึงเปิดได้ทันทีและใช้ออฟไลน์ได้ · ซอร์ส .mmd เป็น Mermaid มาตรฐาน คัดลอกไปใช้ต่อได้"
+        )
+        for column, (title, stem) in zip(st.columns(len(CHEAT_SHEETS)), CHEAT_SHEETS.items()):
+            with column:
+                st.markdown(f"#### {title}")
+                render_cheat_sheet(stem)
 
 
 def main():
