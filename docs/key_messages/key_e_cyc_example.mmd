@@ -1,0 +1,17 @@
+flowchart TD
+    A["ตัวเลขสมมติ: ทุน 1,000, K = 10% ของทุน<br/>รอบ 1: จ่าย K = 100<br/>จำไว้ว่า E ตอนจ่าย = 0"] --> B["E โตเป็น 60<br/>E_cyc = 60 − 0 = 60<br/>S = 60 − 100 = −40 ยังไม่ถึง รอต่อ"]
+    B --> C["E โตเป็น 130<br/>E_cyc = 130 − 0 = 130<br/>S = 130 − 100 = +30 ขยายทุน 1,000 → 1,030"]
+    C --> D["รอบ 2: จ่าย K ใหม่ = 103 (10% ของ 1,030)<br/>จำไว้ว่า E ตอนจ่าย = 130 เพราะ E ไม่ถูกรีเซ็ต<br/>ตอนนี้ E ยัง = 130 ยังไม่ได้หากำไรใหม่เลย"]
+
+    D -->|"ใช้ E_cyc"| G["E_cyc = 130 − 130 = 0<br/>S = 0 − 103 = −103<br/>ถูก: รอกำไรใหม่"]
+    D -->|"ใช้ E ตรงๆ"| W["S = 130 − 103 = +27<br/>ขยายซ้ำทันที<br/>ผิด: นับกำไรเก่าซ้ำ"]
+
+    classDef calc fill:#e8f1ff,stroke:#3b6fd4,color:#111;
+    classDef act fill:#fff4d6,stroke:#d49a1a,color:#111;
+    classDef ok fill:#e6f6e6,stroke:#3a9a3a,color:#111;
+    classDef gap fill:#ffe9e9,stroke:#d43b3b,color:#111;
+
+    class A,B,D calc;
+    class C act;
+    class G ok;
+    class W gap;

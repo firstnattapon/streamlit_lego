@@ -24,6 +24,7 @@
 | `key_main_rebalancing.mmd` | E บวกเสมอ แต่ชนะถือเฉยๆ หรือไม่ |
 | `key_rollover.mmd` | beta ซ่อนราคา `P_avg` (ที่ R = 0) และเกียร์ถอย |
 | `key_option_scale.mmd` | เดิมพัน `σ ≥ √(2k)` และนาฬิกา `2k/σ²` ปี |
+| `key_e_cyc_example.mmd` | ตัวอย่างตัวเลขง่ายๆ: ทำไมต้องใช้ `E_cyc` ไม่ใช่ `E` ตรงๆ |
 
 ซอร์สจริงคือไฟล์ `.mmd` (Mermaid มาตรฐาน ยังไม่ผูกกับแท็บ Cheat Sheet) ส่วนบล็อกในเอกสารนี้คัดลอกมาจากไฟล์เหล่านั้น
 GitHub แสดง Mermaid ใน `.md` ได้เลย ที่อื่นให้วางเนื้อ `.mmd` ใน Mermaid Live Editor
