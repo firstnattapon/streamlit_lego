@@ -36,8 +36,10 @@ streamlit run streamlit_app.py
 
 ## แท็บ Cheat Sheet
 
-แผนภาพ Mermaid ของขั้นตอน **main rebalancing** และ **rollover**
+แผนภาพ Mermaid ของขั้นตอน **main rebalancing**, **rollover**
 (`beta += (Fix_c − Fix_c_new) * ln(P_acted / P₀)`; beta บวกที่ R เท่านั้น ไม่บวกที่ Aₙ)
+และ **Option Scale** (จ่าย K ก่อน → เก็บ E → ขยาย `Fix_c` ด้วยกำไรที่ล็อกแล้ว ย่อจาก
+`app_v4_system.mmd` ของ repo super_app ที่มีแผนผังเต็ม)
 เก็บเป็นไฟล์ `.mmd` ใน `cheat_sheet/`
 (Mermaid มาตรฐาน — วางใน code block ```` ```mermaid ```` ของ Markdown หรือ Mermaid Live Editor ได้)
 ส่วนแท็บแสดงภาพ PNG ที่ render ไว้ล่วงหน้า (เปิดทันที ไม่ต้องมี internet ไม่โหลดไลบรารีเพิ่ม)

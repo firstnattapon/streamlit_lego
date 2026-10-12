@@ -9,8 +9,9 @@
   🌐 Web Apps         — คู่มือ/playground แบบโต้ตอบ (HTML ล้วนใน web_apps/ แสดงใน iframe)
                         คัดลอกจากแท็บ Web Apps ของ pages/Manual.py (leg-code):
                         Rebalancing 101 + Rebalancing Playground — ไม่เรียก Firebase
-  ⚡ Cheat Sheet       — แผนภาพ Mermaid (.mmd ใน cheat_sheet/): main rebalancing และ rollover
-                        (beta += (Fix_c − Fix_c_new) * ln(P_acted / P₀)) แสดงเป็นภาพ PNG ที่ render ไว้ล่วงหน้า
+  ⚡ Cheat Sheet       — แผนภาพ Mermaid (.mmd ใน cheat_sheet/): main rebalancing, rollover
+                        (beta += (Fix_c − Fix_c_new) * ln(P_acted / P₀)) และ Option Scale (จ่าย K ก่อน
+                        → เก็บ E → ขยาย Fix_c ด้วยกำไรที่ล็อกแล้ว) แสดงเป็นภาพ PNG ที่ render ไว้ล่วงหน้า
 
 deploy บน streamlit.app: ใส่ service account JSON + DB URL ใน st.secrets (เฉพาะแท็บ Live)
 """
@@ -82,6 +83,7 @@ CHEAT_SHEET_DIR = Path(__file__).resolve().parent / "cheat_sheet"
 CHEAT_SHEETS = {               # หัวข้อ -> ชื่อไฟล์ .mmd (ไม่รวมนามสกุล)
     "1. Main rebalancing": "main_rebalancing",
     "2. Rollover": "rollover",
+    "3. Option Scale": "option_scale",
 }
 
 
@@ -463,7 +465,7 @@ def render_cheat_sheet(stem: str) -> None:
 def render_cheat_sheets() -> None:
     st.subheader("⚡ Cheat Sheet — รู้ทันขั้นตอนในหน้าเดียว")
     st.caption(
-        "แผนภาพ Mermaid (.mmd) ของ main rebalancing และ rollover — แสดงเป็นภาพที่ render ไว้ล่วงหน้า "
+        "แผนภาพ Mermaid (.mmd) ของ main rebalancing, rollover และ Option Scale — แสดงเป็นภาพที่ render ไว้ล่วงหน้า "
         "จึงเปิดได้ทันทีและใช้ออฟไลน์ได้ · ซอร์ส .mmd เป็น Mermaid มาตรฐาน คัดลอกไปใช้ต่อได้"
     )
     for column, (title, stem) in zip(st.columns(len(CHEAT_SHEETS)), CHEAT_SHEETS.items()):

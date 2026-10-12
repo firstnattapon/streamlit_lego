@@ -6,6 +6,9 @@
   warning in the app instead of a silently stale picture.
 * The rollover diagram's formula, ``beta += (Fix_c − Fix_c_new) * ln(P_acted / P₀)``, is
   checked against the repo's own gated ledger — and so is where beta goes (on R, never on A).
+* The Option Scale diagram is the app-v4 cycle with one box per step. Its order is pinned, its
+  update is the rollover diagram's own line, and app-v4's worked example (K, S, Fix_c_new,
+  ΣE / ΣK) is rebuilt on the same ledger, with the 12.4% rebuilt as a Black-Scholes premium.
 """
 from __future__ import annotations
 
@@ -32,6 +35,8 @@ _NODE = re.compile(r'\b([A-Za-z_]\w*)\s*(?:\[|\{)"')
 _EDGE = re.compile(r'\b([A-Za-z_]\w*)(?:\[[^\]]*\]|\{[^}]*\})?\s*-->\s*(?:\|"[^"]*"\|\s*)?([A-Za-z_]\w*)')
 _CLASSDEF = re.compile(r"^\s*classDef\s+(\w+)\s", re.MULTILINE)
 _CLASS = re.compile(r"^\s*class\s+([\w,]+)\s+(\w+)\s*;", re.MULTILINE)
+_LABEL = re.compile(r'\b([A-Za-z_]\w*)\s*[\[{]"([^"]*)"[\]}]')                      # node -> its text
+_ARROW_LABEL = re.compile(r'\b([A-Za-z_]\w*)\s*-->\|"([^"]*)"\|\s*([A-Za-z_]\w*)')   # (from, text on the arrow, to)
 
 
 def _source(stem: str) -> str:
@@ -53,10 +58,11 @@ def _graph(text: str):
 # --------------------------------------------------------------------------- #
 # sources
 # --------------------------------------------------------------------------- #
-def test_catalog_lists_the_two_diagrams():
+def test_catalog_lists_the_three_diagrams():
     assert streamlit_app.CHEAT_SHEET_DIR == SHEET_DIR.resolve()
     assert streamlit_app.CHEAT_SHEETS == {"1. Main rebalancing": "main_rebalancing",
-                                          "2. Rollover": "rollover"}
+                                          "2. Rollover": "rollover",
+                                          "3. Option Scale": "option_scale"}
     assert {path.stem for path in SHEET_DIR.glob("*.mmd")} == set(STEMS)    # no unlisted diagram
 
 
@@ -106,6 +112,33 @@ def test_rollover_diagram_is_the_simple_one():
     assert not any(has_cycle(start) for start in graph)
 
 
+def test_option_scale_diagram_is_the_simple_one():
+    text = _source("option_scale")
+    nodes, edges = _graph(text)
+    labels = dict(_LABEL.findall(text))
+    step = {label.split()[0]: node for node, label in labels.items()}     # "1." -> its box ... "วัดผล" -> the last box
+
+    assert set(labels) == nodes and len(nodes) <= 8                       # one box per app-v4 step, no more
+    assert set(step) == {"1.", "2.", "3.", "3.1", "4.", "5.1", "5.2", "วัดผล"}   # numbered as in app-v4
+    assert all(label.count("<br/>") <= 2 for label in labels.values())    # at most three short lines each
+    for confusing in ("c′", "P′", "p₀", "β", "·", "×", "÷"):              # main's and rollover's names; * multiplies, / divides
+        assert confusing not in text, confusing
+    for needle in ("K = 12.4% * Fix_c * Hedge", "หุ้น 20% + LEAPS 80%", "E_cyc = E_new − E ตอนจ่าย", "S = E_cyc − K",
+                   "ไม่จ่าย K ซ้ำ", "Zero-Cost ≠ ไม่เสี่ยง", "Fix_c_new = Fix_c + S", "ΣE / ΣK ≥ 1.0x"):
+        assert needle in text, needle
+    for line in ("beta += (Fix_c − Fix_c_new) * ln(P_acted / P₀)", "Fix_c = Fix_c_new"):
+        assert line in text and line in _source("rollover"), line         # the very update the rollover diagram draws
+
+    # The order is the rule. Nothing leads into step 1 (the next round is the last box's words, not an arrow),
+    # "ไม่" goes back to 2 so K is never paid twice, and Scale Up is reachable only through Shield, after "ใช่".
+    pay, collect, gate, trend, shield, scale, roll, measure = (
+        step[s] for s in ("1.", "2.", "3.", "3.1", "4.", "5.1", "5.2", "วัดผล"))
+    assert sorted(edges) == sorted([(pay, collect), (collect, gate), (gate, shield), (gate, trend), (trend, collect),
+                                    (shield, scale), (scale, roll), (roll, measure)])
+    assert sorted(_ARROW_LABEL.findall(text)) == sorted([(gate, "ใช่", shield), (gate, "ไม่", trend),
+                                                         (trend, "กลับ 2", collect)])
+
+
 # --------------------------------------------------------------------------- #
 # rendered images
 # --------------------------------------------------------------------------- #
@@ -141,7 +174,7 @@ def test_digest_ignores_crlf_checkouts(tmp_path):
 # --------------------------------------------------------------------------- #
 # the tab
 # --------------------------------------------------------------------------- #
-def test_cheat_sheet_tab_shows_both_diagrams():
+def test_cheat_sheet_tab_shows_all_diagrams():
     app = AppTest.from_file(APP_PATH)
     app.run(timeout=30)
 
@@ -296,3 +329,38 @@ def test_successive_rollovers_just_add_up():
     closed_form = ((1500.0 - 2200.0) * math.log(112 / 100) + (2200.0 - 900.0) * math.log(95 / 100)
                    + (900.0 - 1500.0) * math.log(130 / 100))
     assert beta == pytest.approx(closed_form, abs=1e-12)
+
+
+# --------------------------------------------------------------------------- #
+# Option Scale: app-v4's worked example, on the repo's own ledger
+# --------------------------------------------------------------------------- #
+def _premium_rate(strike=0.9, years=1.0, sigma=0.5, rate=0.04):
+    """Black-Scholes put on 1 of stock, 10% out of the money: the 12.4% in K = 12.4% * Fix_c * Hedge."""
+    def cdf(x):
+        return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+    d1 = (math.log(1.0 / strike) + (rate + sigma ** 2 / 2.0) * years) / (sigma * math.sqrt(years))
+    d2 = d1 - sigma * math.sqrt(years)
+    return strike * math.exp(-rate * years) * cdf(-d2) - cdf(-d1)
+
+
+def test_option_scale_gives_the_app_v4_numbers():
+    # Fix_c 1,500 and P₀ 10, price 15 then back to 10, Hedge 1: the cycle of app-v4's system map, step by step
+    fix_c, p0, prices = 1500.0, 10.0, [15.0, 10.0]
+    assert f"{_premium_rate():.1%}" in _source("option_scale")           # the 12.4% in the box is the Black-Scholes put
+
+    k = _premium_rate() * fix_c                                          # 1. pay K first
+    rows = core.gated_rebalancing_cashflow_from_prices(prices, fix_c, p0, [1, 1])   # 2. E from main rebalancing
+    e_at_pay, e_up, e_down = (row["excess"] for row in rows)
+    s_up, s_down = e_up - e_at_pay - k, e_down - e_at_pay - k            # 3. S = E_cyc − K
+    assert (e_at_pay, round(k, 2)) == (0.0, 185.94)
+
+    assert (round(e_up, 2), round(s_up, 2)) == (141.80, -44.14)          # S < 0 at 15: step 3.1, E stays ...
+    assert round(rows[1]["ln_reference"], 2) == 608.20                   # ... and the trend R is what goes to Pool CF
+
+    assert (round(e_down, 2), round(s_down, 2)) == (250.00, 64.06)       # S > 0 at 10: steps 4, 5.1, 5.2
+    new_c = fix_c + s_down                                               # 5.1 Scale Up
+    assert round(new_c, 2) == 1564.06
+    a, e, jumps = _beta_run(prices, p0, fix_c, [1, 1], {2: new_c})       # 5.2 Rollover, the rollover diagram's own model
+    assert (round(a, 2), round(e, 2)) == (250.00, 250.00) and abs(jumps[0]) < 1e-9   # E does not move
+    assert round(_premium_rate() * new_c, 2) == 193.88                   # step 1 again, on the new Fix_c
+    assert f"{e_down / k:.2f}x" == "1.34x"                               # the measure: ΣE / ΣK
