@@ -157,6 +157,23 @@ def filter_audit_rows(audit: dict | None, run_ids) -> pd.DataFrame:
     return adf[adf["run_id"].isin(set(run_ids))].reset_index(drop=True)
 
 
+def audit_with_ledger_time(audit_rows: pd.DataFrame, ledger: pd.DataFrame) -> pd.DataFrame:
+    """เติม "เวลา (UTC)" จากตาราง 17 คอลัมน์ (ผูกด้วย run_id) แล้วเรียง run_id ล่าสุดอยู่บนสุด
+    ลำดับ "ล่าสุด" = ตำแหน่งแถวใน ledger (เรียง version แล้ว) เพราะ run_id ไม่ได้เรียงตามเวลา
+    audit ที่ไม่มี run_id ใน ledger -> เวลาว่างและอยู่ท้ายตาราง; payload เก่าไม่มี run_id -> คืนเดิม"""
+    time_col = COLUMN_ORDER[0]
+    if (audit_rows.empty or "run_id" not in audit_rows.columns
+            or "run_id" not in ledger.columns or time_col not in ledger.columns):
+        return audit_rows
+    latest = ledger.drop_duplicates("run_id", keep="last")
+    times = dict(zip(latest["run_id"], latest[time_col]))
+    rank = {rid: pos for pos, rid in enumerate(ledger["run_id"])}
+    adf = audit_rows.copy()
+    adf[time_col] = adf["run_id"].map(times)
+    order = adf["run_id"].map(rank).fillna(-1).sort_values(ascending=False, kind="stable")
+    return adf.loc[order.index].reset_index(drop=True)
+
+
 def pending_broker_fee_count(audit_rows: pd.DataFrame) -> int:
     """Count fills whose broker fee is still unknown, never inferred as zero."""
     if audit_rows.empty or "broker_fee_status" not in audit_rows.columns:
