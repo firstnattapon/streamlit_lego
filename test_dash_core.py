@@ -10,7 +10,10 @@ from __future__ import annotations
 import math
 import sys
 
-from lego_dash_core import (COLUMN_ORDER, count_ledger_corrections,
+import pandas as pd
+
+from lego_dash_core import (COLUMN_ORDER, audit_with_ledger_time,
+                            count_ledger_corrections,
                             default_chain_index, filter_audit_rows,
                             integrity_report, order_columns,
                             recompute_gated_ledger, rows_to_df)
@@ -270,6 +273,33 @@ def test_filter_audit_rows_by_chain_run_ids():
     # payload เก่าไม่มี run_id -> คืนทั้งหมด (ไม่ตัดข้อมูลที่กรองไม่ได้)
     legacy = {"o1": {"side": "BUY"}, "o2": {"side": "SELL"}}
     assert len(filter_audit_rows(legacy, ["r1"])) == 2
+
+
+def test_audit_with_ledger_time_joins_utc_and_sorts_latest_first():
+    # run_id ไม่ได้เรียงตามเวลา — "ล่าสุด" ต้องมาจากลำดับแถว ledger (version)
+    ledger = pd.DataFrame({
+        "run_id": ["zz", "aa", "mm"],
+        "เวลา (UTC)": ["2026-10-01T14:30:00Z", "2026-10-02T14:30:00Z",
+                       "2026-10-03T14:30:00Z"],
+        "version": [1, 2, 3],
+    })
+    audit = pd.DataFrame([
+        {"run_id": "aa", "status": "FILLED"},
+        {"run_id": "xx", "status": "PLACING"},   # ไม่มีใน ledger -> ท้ายตาราง
+        {"run_id": "zz", "status": "FILLED"},
+        {"run_id": "mm", "status": "REJECTED"},
+    ])
+    out = audit_with_ledger_time(audit, ledger)
+    assert list(out["run_id"]) == ["mm", "aa", "zz", "xx"]
+    assert list(out["เวลา (UTC)"][:3]) == ["2026-10-03T14:30:00Z",
+                                          "2026-10-02T14:30:00Z",
+                                          "2026-10-01T14:30:00Z"]
+    assert pd.isna(out["เวลา (UTC)"].iloc[3])
+    assert list(audit["run_id"]) == ["aa", "xx", "zz", "mm"]   # ไม่แก้ input
+    # payload เก่าไม่มี run_id / ledger ไม่มีเวลา -> คืนเดิม
+    legacy = pd.DataFrame([{"side": "BUY"}])
+    assert audit_with_ledger_time(legacy, ledger) is legacy
+    assert audit_with_ledger_time(audit, ledger.drop(columns="เวลา (UTC)")) is audit
 
 
 

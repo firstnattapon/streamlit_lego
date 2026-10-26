@@ -44,6 +44,7 @@ _REQUIRED_DASH_CORE_API = (
     "system_health_rows",
     "LEGACY_DROPPED_COLS",
     "ledger_explanations",
+    "audit_with_ledger_time",
 )
 if any(not hasattr(_lego_dash_core, name) for name in _REQUIRED_DASH_CORE_API):
     _lego_dash_core = importlib.reload(_lego_dash_core)
@@ -51,7 +52,8 @@ if any(not hasattr(_lego_dash_core, name) for name in _REQUIRED_DASH_CORE_API):
 from lego_dash_core import (DEFAULT_GATED_DNA, EXECUTION_CONFIRMED_SEMANTICS,
                             EXECUTION_TERMINAL_FROZEN_V2, LEDGER_COLS,
                             MAX_REBALANCING_STEPS, MONEY_COLS,
-                            build_gate_actions, count_ledger_corrections,
+                            audit_with_ledger_time, build_gate_actions,
+                            count_ledger_corrections,
                             default_chain_index, filter_audit_rows,
                             gated_rebalancing_cashflow_from_prices,
                             integrity_report, ledger_explanations,
@@ -270,13 +272,14 @@ def render_live_dashboard() -> None:
         run_ids = df["run_id"] if "run_id" in df.columns else []
         adf = filter_audit_rows(audit, run_ids)
         if not adf.empty:
+            adf = audit_with_ledger_time(adf, df)
             st.subheader("Order audit (redacted)")
             pending_fees = pending_broker_fee_count(adf)
             if pending_fees:
                 st.warning(
                     f"มี {pending_fees} fill ที่ broker fee ยังเป็น PENDING — "
                     "ระบบไม่ถือเป็นศูนย์และยังไม่ปลด money fence จนกว่าจะกระทบยอด")
-            diagnostic_columns = [name for name in ("run_id", "status", "reject_reason",
+            diagnostic_columns = [name for name in ("เวลา (UTC)", "run_id", "status", "reject_reason",
                                   "terminal_reason", "filled_quantity", "broker_fee_status") if name in adf]
             st.dataframe(adf[diagnostic_columns + [name for name in adf if name not in diagnostic_columns]],
                          width="stretch")
