@@ -75,6 +75,50 @@ def test_live_execution_dashboard_renders_with_mocked_read_only_firebase(
 
 
 
+def test_live_dashboard_with_interleaved_chains_renders_total_and_integrity(monkeypatch):
+    """version counts per chain, so rows of several chains interleave after sorting.
+
+    The selected chain then keeps a non-contiguous index; without a reset the
+    integrity report raised IndexingError. Σ Eₙ must cover every chain.
+    """
+    import firebase_admin.db  # noqa: F401 — loaded even when this test runs alone
+    from test_charts import _chain
+
+    rows = {}
+    rows.update(_chain("APLS", "APLS_aaaaaaaaaaaa", "2026-09-01T14:00:00Z"))
+    rows.update(_chain("NVDA", "NVDA_bbbbbbbbbbbb", "2026-09-01T14:30:00Z"))
+    payloads = {
+        "webull_lego_rows": rows,
+        "webull_lego_state": {"NVDA_bbbbbbbbbbbb": {"updated_at": "2026-09-02T00:00:00Z"}},
+        "webull_lego_order_audit": {},
+    }
+
+    class _Reference:
+        def __init__(self, path):
+            self.path = path
+
+        def get(self):
+            return payloads.get(self.path)
+
+    monkeypatch.setattr(firebase_admin, "_apps", {"test": object()})
+    monkeypatch.setattr(firebase_admin.db, "reference", _Reference)
+    app = AppTest.from_file(str(Path(__file__).with_name("streamlit_app.py")))
+    app.secrets.update({
+        "FIREBASE_SA_JSON": "{}",
+        "FIREBASE_DB_URL": "https://mock.firebaseio.test",
+    })
+
+    app.run(timeout=20)
+
+    assert not app.exception
+    assert app.selectbox[0].value == "NVDA_bbbbbbbbbbbb"     # not the first chain's rows
+    assert len(app.get("plotly_chart")) == 3
+    assert any("ผ่านการตรวจสมการ" in item.value for item in app.success)
+    total = next(item for item in app.metric if item.label == "Σ Eₙ รวมทุกหุ้น (USD)")
+    assert total.value.startswith(("+", "-"))
+    assert next(item for item in app.metric if item.label == "หุ้น / chain").value == "2 / 2"
+
+
 def test_auth_pause_visible_before_first_row_and_resolved_is_history(monkeypatch):
     warnings = {"auth_failure_example": {"kind": "AUTH_BACKOFF", "active": True,
                                            "count": 3, "retry_after": 9999999999}}

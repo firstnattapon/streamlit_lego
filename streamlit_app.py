@@ -229,7 +229,10 @@ def render_live_dashboard() -> None:
         # default = chain ที่ active ล่าสุดตาม state.updated_at (ไม่ใช่เรียงอักษร)
         selected = st.selectbox("Chain", chains,
                                 index=default_chain_index(chains, state))
-        df = df[df["chain_key"] == selected]
+        # reset index: version นับแยกต่อ chain แถวของหลาย chain จึงสลับกันหลังเรียง version
+        # index ที่เหลือหลังกรองไม่ต่อเนื่อง แต่ recompute_gated_ledger คืน index 0..n-1
+        # -> integrity_report จับคู่ mask ไม่ได้ (IndexingError) ถ้าไม่ reset
+        df = df[df["chain_key"] == selected].reset_index(drop=True)
     elif chains:
         selected = chains[0]
         st.caption(f"Chain: {chains[0]}")
