@@ -763,6 +763,86 @@ def count_ledger_corrections(stored: pd.DataFrame, fixed: pd.DataFrame,
 
 
 # ----------------------------------------------------------------------------
+# Σ Eₙ รวมทุกหุ้น — รวม Eₙ ของทุก chain ตามเวลา (กราฟระดับพอร์ต)
+# ----------------------------------------------------------------------------
+TIME_COL = "เวลา (UTC)"
+ASSET_COL = "สินทรัพย์"
+EXCESS_COL = "Eₙ ส่วนเกินสะสม (USD)"
+TOTAL_EXCESS_COL = "รวม"
+
+
+def chain_p0(state: dict | None, chain: str | None) -> float | None:
+    """P₀ ของ chain จาก state pointer (``state[chain]["p0"]``) — ไม่มี -> None
+
+    None ให้ recompute_gated_ledger ใช้ราคาแถว genesis แทน (พฤติกรรมเดิมของหน้า Live)
+    """
+    if not chain or not isinstance(state, dict):
+        return None
+    raw = (state.get(chain) or {}).get("p0")
+    return float(raw) if raw is not None else None
+
+
+def _chain_symbol(rows: pd.DataFrame, chain: str) -> str:
+    """ชื่อหุ้นของ chain: ค่าแรกที่ไม่ว่างของ "สินทรัพย์" มิฉะนั้น prefix ของ chain_key
+
+    chain_key = f"{symbol}_{config_hash}" (lego_state.chain_key) — เปลี่ยน config แล้วได้
+    chain ใหม่ของหุ้นเดิม จึงต้องรวมกลับเป็นหุ้นเดียว
+    """
+    if ASSET_COL in rows.columns:
+        names = rows[ASSET_COL].dropna().astype(str).str.strip()
+        names = names[names != ""]
+        if not names.empty:
+            return names.iloc[0]
+    return str(chain).rsplit("_", 1)[0] or str(chain)
+
+
+def total_excess_timeline(df: pd.DataFrame, state: dict | None = None) -> pd.DataFrame:
+    """Eₙ รายหุ้น + ยอดรวมทุกหุ้น ตามเวลา (UTC) — ข้อมูลของกราฟ Σ Eₙ
+
+    คืน DataFrame: index = เวลา (UTC, tz-aware, เรียงจากเก่าไปใหม่), คอลัมน์ = หุ้น
+    (เรียงตามชื่อ) + ``"รวม"`` ท้ายสุด; ไม่มีข้อมูลที่ใช้ได้ -> DataFrame ว่าง
+
+    - Eₙ ต่อ chain มาจาก ``recompute_gated_ledger(chain, p0=chain_p0(state, chain))``
+      ชุดเดียวกับตาราง/กราฟรายตัว (ไม่ใช่ค่าดิบที่ engine เขียน)
+    - Eₙ เป็นค่าสะสมอยู่แล้ว: ยอดรวม ณ เวลา t = Σ ค่าล่าสุดของแต่ละ chain ที่ ≤ t
+      (ไม่ cumsum ซ้ำ) — chain ที่หยุดแล้วค้างค่าสุดท้าย, ก่อนแถวแรกของ chain = 0
+    - หุ้นเดียวหลาย chain (config เปลี่ยน) รวมเป็นคอลัมน์เดียว
+    - แถวที่ parse เวลาไม่ได้ถูกตัดออกจาก timeline นี้เท่านั้น
+    """
+    if df.empty or EXCESS_COL not in df.columns or TIME_COL not in df.columns:
+        return pd.DataFrame()
+    if "chain_key" in df.columns:
+        groups = [(str(ck), rows) for ck, rows in df.groupby("chain_key", sort=True)]
+    else:
+        groups = [("", df)]
+
+    series: dict[str, pd.Series] = {}
+    symbols: dict[str, str] = {}
+    for chain, rows in groups:
+        fixed = recompute_gated_ledger(rows, p0=chain_p0(state, chain or None))
+        stamps = pd.to_datetime(fixed[TIME_COL], utc=True, errors="coerce", format="mixed")
+        values = pd.to_numeric(fixed[EXCESS_COL], errors="coerce")
+        excess = pd.Series(values.to_numpy(dtype=float), index=pd.DatetimeIndex(stamps))
+        excess = excess[excess.index.notna() & excess.notna()]
+        if excess.empty:
+            continue
+        # เวลาซ้ำใน chain เดียว -> ใช้แถวหลังสุด (เรียง version แล้ว = state ล่าสุด)
+        excess = excess.groupby(level=0).last().sort_index()
+        series[chain] = excess
+        symbols[chain] = _chain_symbol(rows, chain)
+    if not series:
+        return pd.DataFrame()
+
+    wide = pd.concat(series, axis=1).sort_index().ffill().fillna(0.0)
+    per_symbol = wide.T.groupby(pd.Series(symbols)).sum().T
+    per_symbol = per_symbol[sorted(per_symbol.columns)]
+    per_symbol[TOTAL_EXCESS_COL] = per_symbol.sum(axis=1)
+    per_symbol.index.name = TIME_COL
+    per_symbol.columns.name = None
+    return per_symbol
+
+
+# ----------------------------------------------------------------------------
 # ที่มาของตัวเลข Rₙ / ΔAₙ / Aₙ / Eₙ ต่อเซลล์ (ข้อความ tooltip ตอนชี้เมาส์บนตาราง)
 # ข้อความมาจาก trace ของ recompute_gated_ledger เอง — สูตรกับตัวเลขที่แทนค่าจึงเป็นชุด
 # เดียวกับที่คำนวณจริง ไม่ใช่การเดาย้อนจากค่าที่แสดง
