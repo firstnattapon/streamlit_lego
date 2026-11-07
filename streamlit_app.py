@@ -2,7 +2,9 @@
 
 4 แท็บ:
   📊 Live Dashboard   — อ่าน committed rows จาก Firebase (เหมือนเดิม), กรอง
-                        committed==True, เลือก chain, ตาราง 17 คอลัมน์, integrity E1–E8
+                        committed==True, กราฟ Σ Eₙ รวมทุกหุ้น (ทุก chain ตามเวลา UTC),
+                        เลือก chain, ตาราง 17 คอลัมน์, integrity E1–E8
+                        (กราฟทั้งหมดเป็น Plotly จาก lego_charts.py)
   🎓 Rebalancing 101  — playground เชิงสอน "gated demo (DNA gate + บัญชีแบบแช่แข็ง)"
                         ไม่ต้องมี Firebase: สุ่มราคา -> เดิน ledger gated_theoretical_v2
                         เห็นว่ารอบ "จำนวนสั่ง = 0" (pass/แช่แข็ง) ถูกบันทึกอย่างไร
@@ -45,6 +47,8 @@ _REQUIRED_DASH_CORE_API = (
     "LEGACY_DROPPED_COLS",
     "ledger_explanations",
     "audit_with_ledger_time",
+    "chain_p0",
+    "total_excess_timeline",
 )
 if any(not hasattr(_lego_dash_core, name) for name in _REQUIRED_DASH_CORE_API):
     _lego_dash_core = importlib.reload(_lego_dash_core)
@@ -52,7 +56,8 @@ if any(not hasattr(_lego_dash_core, name) for name in _REQUIRED_DASH_CORE_API):
 from lego_dash_core import (DEFAULT_GATED_DNA, EXECUTION_CONFIRMED_SEMANTICS,
                             EXECUTION_TERMINAL_FROZEN_V2, LEDGER_COLS,
                             MAX_REBALANCING_STEPS, MONEY_COLS,
-                            audit_with_ledger_time, build_gate_actions,
+                            TOTAL_EXCESS_COL, audit_with_ledger_time,
+                            build_gate_actions, chain_p0,
                             count_ledger_corrections,
                             default_chain_index, filter_audit_rows,
                             gated_rebalancing_cashflow_from_prices,
@@ -60,7 +65,9 @@ from lego_dash_core import (DEFAULT_GATED_DNA, EXECUTION_CONFIRMED_SEMANTICS,
                             order_columns, pending_broker_fee_count,
                             rebalancing_cashflow_from_prices,
                             recompute_gated_ledger, rows_to_df,
-                            simulate_rebalancing_prices)
+                            simulate_rebalancing_prices, total_excess_timeline)
+from lego_charts import (MAX_ACT_MARKERS, PLOTLY_CONFIG, ledger_figure,
+                         total_excess_figure)
 
 FROZEN_TERMINAL_SEMANTICS = getattr(
     _lego_dash_core, "FROZEN_TERMINAL_SEMANTICS",
@@ -142,6 +149,51 @@ def render_ledger_table(show: pd.DataFrame, persisted_df: pd.DataFrame,
     st.dataframe(show, width="stretch")
 
 
+def live_ledger_figure(df: pd.DataFrame):
+    """กราฟ Rₙ / Aₙ / Eₙ ของ chain ที่เลือก (หลัง recompute) — จุด act = แถวที่ ΔAₙ ≠ 0"""
+    delta = "ΔAₙ ต่อสเต็ป (USD)"
+    acted = (df[delta].astype(float).abs() > 1e-12).tolist() if delta in df.columns else None
+    parts = [df[col].astype(str) for col in ("เวลา (UTC)", "สถานะ") if col in df.columns]
+    hover = parts[0].str.cat(parts[1:], sep=" · ").tolist() if parts else None
+    return ledger_figure(
+        df["DNA step"].tolist(),
+        df["Rₙ อ้างอิง (USD)"], df["Aₙ สะสม (USD)"], df["Eₙ ส่วนเกินสะสม (USD)"],
+        acted=acted, hover_text=hover, x_title="DNA step", theme=_streamlit_theme())
+
+
+def render_total_excess(df: pd.DataFrame, state: dict) -> None:
+    """Σ Eₙ รวมทุกหุ้น — ใช้แถวของทุก chain (ก่อนกรองเลือก chain) ผ่าน total_excess_timeline
+
+    เป็นส่วนเสริมระดับพอร์ต: คำนวณ/วาดไม่ได้ก็แค่เตือน ห้ามทำให้หน้า Live ทั้งหน้าล่ม
+    """
+    st.subheader("📈 Σ Eₙ รวมทุกหุ้น")
+    try:
+        timeline = total_excess_timeline(df, state)
+        if timeline.empty:
+            st.info("ยังไม่มีแถวที่มีเวลา (UTC) และ Eₙ ให้รวม")
+            return
+        symbols = [c for c in timeline.columns if c != TOTAL_EXCESS_COL]
+        n_chains = int(df["chain_key"].nunique()) if "chain_key" in df.columns else 1
+        latest = timeline.iloc[-1]
+        m = st.columns(3)
+        m[0].metric("Σ Eₙ รวมทุกหุ้น (USD)", f"{float(latest[TOTAL_EXCESS_COL]):+,.2f}")
+        m[1].metric("หุ้น / chain", f"{len(symbols)} / {n_chains}")
+        m[2].metric("แถวล่าสุด (UTC)", timeline.index[-1].strftime("%Y-%m-%d %H:%M"))
+        st.plotly_chart(total_excess_figure(timeline, theme=_streamlit_theme()),
+                        theme=None, config=PLOTLY_CONFIG, key="live_total_excess_chart")
+        st.caption(
+            "Eₙ เป็นค่าสะสมของแต่ละ chain อยู่แล้ว — Σ Eₙ ณ เวลา t = ผลรวม Eₙ ล่าสุดของทุก chain "
+            "ที่เกิดก่อนหรือ ณ t (ไม่ cumsum ซ้ำ) · chain ที่หยุดแล้วค้างค่าสุดท้าย, ก่อนแถวแรกของ chain "
+            "นับเป็น 0 · หุ้นเดียวหลาย chain (config เปลี่ยน) รวมเป็นเส้นเดียว · Eₙ ต่อ chain "
+            "คำนวณแบบเดียวกับกราฟ/ตารางด้านล่าง")
+        with st.expander("ตาราง Eₙ ล่าสุดรายหุ้น", expanded=False):
+            table = latest.rename("Eₙ ล่าสุด (USD)").astype(float).round(2).to_frame()
+            table.index.name = "หุ้น"
+            st.dataframe(table, width="stretch")
+    except Exception as exc:   # กราฟรวมเป็นส่วนเสริม — ห้ามทำให้ dashboard หลักล่ม
+        st.warning(f"สร้างกราฟ Σ Eₙ รวมทุกหุ้นไม่ได้ ({type(exc).__name__}: {exc})")
+
+
 def render_live_dashboard() -> None:
     # แท็บนี้ต้องมี Firebase — ไม่มี secrets ก็แค่แจ้ง แล้วไม่ล้มทั้งหน้า (แท็บ 101 ยังใช้ได้)
     if not _secrets_ready():
@@ -169,13 +221,18 @@ def render_live_dashboard() -> None:
         st.info("ยังไม่มีแถว committed — รอ Cloud Function รอบแรก")
         return
 
+    render_total_excess(df, state)
+
     # เลือก chain ก่อน — กัน step ซ้ำข้าม chain ปนกราฟ
     chains = sorted(df["chain_key"].dropna().unique()) if "chain_key" in df else []
     if len(chains) > 1:
         # default = chain ที่ active ล่าสุดตาม state.updated_at (ไม่ใช่เรียงอักษร)
         selected = st.selectbox("Chain", chains,
                                 index=default_chain_index(chains, state))
-        df = df[df["chain_key"] == selected]
+        # reset index: version นับแยกต่อ chain แถวของหลาย chain จึงสลับกันหลังเรียง version
+        # index ที่เหลือหลังกรองไม่ต่อเนื่อง แต่ recompute_gated_ledger คืน index 0..n-1
+        # -> integrity_report จับคู่ mask ไม่ได้ (IndexingError) ถ้าไม่ reset
+        df = df[df["chain_key"] == selected].reset_index(drop=True)
     elif chains:
         selected = chains[0]
         st.caption(f"Chain: {chains[0]}")
@@ -191,10 +248,7 @@ def render_live_dashboard() -> None:
                       .isin(FROZEN_TERMINAL_SEMANTICS).any())
 
     # P₀ จาก state pointer (chain ตัดหน้า) — genesis จะ fallback = ราคาแถวแรกใน recompute
-    p0_hint = None
-    if selected and isinstance(state, dict):
-        raw = (state.get(selected) or {}).get("p0")
-        p0_hint = float(raw) if raw is not None else None
+    p0_hint = chain_p0(state, selected)
 
     # dashboard เป็น read-only: derive recurrence ใหม่ตาม semantics ก่อนแสดงเสมอ;
     # v2 ใช้ decision ส่วน v3 ใช้เฉพาะหลักฐาน broker fill ที่ FINALIZED.
@@ -246,9 +300,10 @@ def render_live_dashboard() -> None:
             "เทียบราคาแถว act ล่าสุด · แถว pass (ไม่เทรด — PASS_DNA_ZERO หรือ PASS_THRESHOLD, "
             "จำนวนสั่ง = 0) ΔAₙ = 0, Aₙ ค้าง, Eₙ ค้างค่า act ล่าสุด (smooth) — Eₙ ไม่ลดและ ≥ 0 เสมอ"
         )
-    chart_df = df.set_index("DNA step")[[
-        "Rₙ อ้างอิง (USD)", "Aₙ สะสม (USD)", "Eₙ ส่วนเกินสะสม (USD)"]].astype(float)
-    st.line_chart(chart_df)
+    st.plotly_chart(live_ledger_figure(df), theme=None, config=PLOTLY_CONFIG,
+                    key="live_ledger_chart")
+    st.caption("จุดบนเส้น Aₙ = แถว act (ΔAₙ ≠ 0) · ชี้เมาส์ดูค่าทุกเส้น ณ DNA step นั้น "
+               "พร้อมเวลา (UTC) และสถานะ · ลากเพื่อซูม ดับเบิลคลิกเพื่อรีเซ็ต")
 
     st.subheader("ตาราง 17 คอลัมน์ (round 2dp)")
     show = order_columns(df.copy())
@@ -355,10 +410,16 @@ def render_rebalancing_101() -> None:
                     f"{g_final['actual_cumulative'] - p_final['actual_cumulative']:+,.2f}")
 
         st.markdown("#### กราฟ — Rₙ (อ้างอิง) vs Aₙ (gated) vs Eₙ (smooth)")
-        chart_df = pd.DataFrame(gated_rows).set_index("step")[[
-            "ln_reference", "actual_cumulative", "excess"]]
-        chart_df.columns = ["Rₙ อ้างอิง", "Aₙ (gated)", "Eₙ (smooth)"]
-        st.line_chart(chart_df)
+        st.plotly_chart(
+            ledger_figure([row["step"] for row in gated_rows],
+                          [row["ln_reference"] for row in gated_rows],
+                          [row["actual_cumulative"] for row in gated_rows],
+                          [row["excess"] for row in gated_rows],
+                          acted=[row["action"] == 1 for row in gated_rows],
+                          x_title="รอบ", theme=_streamlit_theme()),
+            theme=None, config=PLOTLY_CONFIG, key="demo_ledger_chart")
+        st.caption("Aₙ = gated · Eₙ = smooth · จุดบนเส้น Aₙ = รอบ act (gate 1) — "
+                   f"แสดงจุดเมื่อมี act ไม่เกิน {MAX_ACT_MARKERS} รอบ")
 
         st.markdown("#### ตาราง ledger (gated)")
         gated_frame = pd.DataFrame(gated_rows)

@@ -19,6 +19,7 @@
   `tools/render_cheat_sheet.py` สร้างภาพใหม่ (รายละเอียดด้านล่าง)
 - `lego_dash_core.py` — การจัดตาราง ตรวจ integrity และคำนวณ ledger สำหรับการแสดงผล
 - `lego_hover_table.py` — ตาราง HTML ที่ชี้เมาส์ดูที่มาของตัวเลขได้ (ฝังด้วย `components.html`)
+- `lego_charts.py` — กราฟ Plotly ทั้งหมด (pure ไม่ import streamlit จึง test ได้ตรง ๆ — `test_charts.py`)
 - `dna_engine.py` — ตัวถอด DNA แบบเดียวกับ backend
 - `requirements.txt` — dependency ที่ pin แล้ว
 - `docs/` — คู่มือและแผนการเรียนรู้เพิ่มเติม
@@ -69,6 +70,21 @@ python tools/render_cheat_sheet.py
 เพิ่มคู่มือใหม่: วางไฟล์ HTML ใน `web_apps/` แล้วเพิ่มชื่อใน `WEB_APPS` (ตัวเลือกในแท็บ
 Web Apps) — `test_web_apps.py` จะตรวจให้อัตโนมัติว่าทุกหน้าใน `web_apps/` อยู่ในรายการ
 และยัง self-contained
+
+## กราฟ (Plotly)
+
+กราฟทุกจุดสร้างจาก `lego_charts.py` แสดงด้วย `st.plotly_chart(theme=None)` สีเลือกแยกสำหรับธีม
+light/dark (ตามธีม Streamlit) ชี้เมาส์เห็นค่าทุกเส้น ณ จุดเดียวกันเป็น USD ลากเพื่อซูม ดับเบิลคลิกเพื่อรีเซ็ต
+และกดปุ่มกล้องเพื่อบันทึก PNG
+
+- **Rₙ / Aₙ / Eₙ** (Live Dashboard และ Rebalancing 101) — Rₙ เป็นเส้นประอ้างอิง, Aₙ มีจุดที่แถว act
+  (Live: ΔAₙ ≠ 0, 101: gate 1; ซ่อนจุดเมื่อมี act เกิน 150 รอบ), Eₙ มีพื้นที่ใต้เส้น และมี label ค่าล่าสุดที่ปลายเส้น
+- **📈 Σ Eₙ รวมทุกหุ้น** (Live Dashboard เหนือตัวเลือก Chain) — เส้นหนาคือยอดรวม เส้นบางคือรายหุ้น
+  แกน x เป็นเวลา (UTC) พร้อมปุ่ม 1D / 1W / 1M / ทั้งหมด และตาราง Eₙ ล่าสุดรายหุ้นใน expander
+  - Eₙ ของแต่ละ chain คำนวณด้วย `recompute_gated_ledger` (P₀ จาก state pointer) แบบเดียวกับกราฟ/ตารางรายตัว
+  - Eₙ เป็นค่าสะสมอยู่แล้ว: Σ Eₙ ณ เวลา t = ผลรวม Eₙ ล่าสุดของทุก chain ที่เกิดก่อนหรือ ณ t (ไม่ cumsum ซ้ำ)
+  - chain ที่หยุดแล้วค้างค่าสุดท้าย, ก่อนแถวแรกของ chain นับเป็น 0, หุ้นเดียวหลาย chain (config เปลี่ยน)
+    รวมเป็นเส้นเดียว, หุ้นเกิน 8 ตัวพับตัวที่ |Eₙ| เล็กสุดเป็น "อื่น ๆ"
 
 ## ดูที่มาของตัวเลขในตาราง 17 คอลัมน์
 
